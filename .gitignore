@@ -1,0 +1,15 @@
+node_modules
+package-lock.json
+
+# Keep environment variables out of version control
+.env
+
+/generated/prisma
+
+/dist
+
+# Prisma generated config files
+prisma.config.d.ts
+prisma.config.d.ts.map
+prisma.config.js
+prisma.config.js.map
