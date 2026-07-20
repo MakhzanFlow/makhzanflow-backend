@@ -1,10 +1,8 @@
-import { UserRepository } from '../repositories/user.repository.js';
-import { VerificationTokenRepository } from '../repositories/verification-token.repository.js';
-import { RefreshTokenRepository } from '../repositories/refresh-token.repository.js';
-import { hashPassword, comparePassword } from '../utils/password.js';
-import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
-import { sendVerificationEmail } from '../utils/email.js';
-import { AppError } from '../errors/app-error.js';
+import { UserRepository, VerificationTokenRepository, RefreshTokenRepository } from './auth.repository.js';
+import { hashPassword, comparePassword } from '../../shared/utils/password.js';
+import { generateAccessToken, generateRefreshToken } from '../../shared/utils/jwt.js';
+import { sendVerificationEmail } from '../../shared/utils/email.js';
+import { AppError } from '../../shared/errors/app-error.js';
 
 export class AuthService {
   private generateOtp(): string {

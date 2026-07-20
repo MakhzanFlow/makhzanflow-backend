@@ -1,9 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
-import { AuthService } from '../services/auth.service.js';
-import { UserRepository } from '../repositories/user.repository.js';
-import { VerificationTokenRepository } from '../repositories/verification-token.repository.js';
-import { RefreshTokenRepository } from '../repositories/refresh-token.repository.js';
-import type { AuthRequest } from '../middlewares/auth.middleware.js';
+import { AuthService } from './auth.service.js';
+import { UserRepository, VerificationTokenRepository, RefreshTokenRepository } from './auth.repository.js';
+import type { AuthRequest } from '../../middleware/auth.middleware.js';
 import type { TFunction } from 'i18next';
 
 // Instantiate dependencies (in a real app, use dependency injection container)

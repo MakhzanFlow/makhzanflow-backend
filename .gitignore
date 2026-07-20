@@ -18,3 +18,4 @@ prisma.config.js.map
 docs
 specs
 prisma*
+/generated/prisma

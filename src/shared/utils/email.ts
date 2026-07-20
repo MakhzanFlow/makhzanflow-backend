@@ -1,6 +1,6 @@
 import { Resend } from 'resend';
-import { env } from '../config/env.js';
-import { logger } from '../config/logger.js';
+import { env } from '../../config/env.js';
+import { logger } from '../../config/logger.js';
 
 if (!env.RESEND_API_KEY) {
   logger.warn('⚠️  RESEND_API_KEY is not set — emails will NOT be sent.');

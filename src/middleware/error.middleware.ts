@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { AppError } from '../errors/app-error.js';
+import { AppError } from '../shared/errors/app-error.js';
 import { logger } from '../config/logger.js';
 import type { TFunction } from 'i18next';
 

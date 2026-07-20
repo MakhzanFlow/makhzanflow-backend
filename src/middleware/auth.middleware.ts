@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import { verifyAccessToken } from '../utils/jwt.js';
-import { AppError } from '../errors/app-error.js';
+import { verifyAccessToken } from '../shared/utils/jwt.js';
+import { AppError } from '../shared/errors/app-error.js';
 
 export interface AuthRequest extends Request {
   user?: any; // Replace with User type when available
