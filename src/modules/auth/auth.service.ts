@@ -1,8 +1,8 @@
 import { UserRepository, VerificationTokenRepository, RefreshTokenRepository } from './auth.repository.js';
 import { hashPassword, comparePassword } from '../../shared/utils/password.js';
 import { generateAccessToken, generateRefreshToken } from '../../shared/utils/jwt.js';
-import { sendVerificationEmail } from '../../shared/utils/email.js';
 import { AppError } from '../../shared/errors/app-error.js';
+import type { IEmailService } from '../../types/email-service.js';
 
 export class AuthService {
   private generateOtp(): string {
@@ -11,7 +11,8 @@ export class AuthService {
   constructor(
     private userRepository: UserRepository,
     private verificationTokenRepo: VerificationTokenRepository,
-    private refreshTokenRepo: RefreshTokenRepository
+    private refreshTokenRepo: RefreshTokenRepository,
+    private emailService: IEmailService
   ) {}
 
   async register(data: any) {
@@ -37,7 +38,7 @@ export class AuthService {
       users: { connect: { id: user.id } },
     });
 
-    await sendVerificationEmail(user.email, user.name, token);
+    await this.emailService.sendVerificationEmail(user.email, user.name, token);
 
     const { password_hash, ...userWithoutPassword } = user;
     return userWithoutPassword;
@@ -119,7 +120,7 @@ export class AuthService {
       users: { connect: { id: user.id } },
     });
 
-    await sendVerificationEmail(user.email, user.name, token);
+    await this.emailService.sendVerificationEmail(user.email, user.name, token);
   }
 
   async login(data: any) {

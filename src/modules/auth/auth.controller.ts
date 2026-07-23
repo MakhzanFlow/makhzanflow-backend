@@ -1,6 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AuthService } from './auth.service.js';
 import { UserRepository, VerificationTokenRepository, RefreshTokenRepository } from './auth.repository.js';
+import { BrevoEmailService } from '../../shared/utils/email-brevo.js';
+import { ResendEmailService } from '../../shared/utils/email-resend.js';
+import { CompositeEmailService } from '../../shared/utils/email-composite.js';
 import type { AuthRequest } from '../../middleware/auth.middleware.js';
 import type { TFunction } from 'i18next';
 
@@ -8,7 +11,11 @@ import type { TFunction } from 'i18next';
 const userRepo = new UserRepository();
 const verifyTokenRepo = new VerificationTokenRepository();
 const refreshTokenRepo = new RefreshTokenRepository();
-const authService = new AuthService(userRepo, verifyTokenRepo, refreshTokenRepo);
+const emailService = new CompositeEmailService([
+  new BrevoEmailService(),
+  new ResendEmailService(),
+]);
+const authService = new AuthService(userRepo, verifyTokenRepo, refreshTokenRepo, emailService);
 
 export class AuthController {
   async register(req: Request, res: Response, next: NextFunction) {
