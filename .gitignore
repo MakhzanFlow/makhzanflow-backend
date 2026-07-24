@@ -19,3 +19,5 @@ docs
 specs
 prisma*
 /generated/prisma
+makhzanflow-postman.md
+postman/
