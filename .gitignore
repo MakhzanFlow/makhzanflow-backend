@@ -21,3 +21,4 @@ prisma*
 /generated/prisma
 makhzanflow-postman.md
 postman/
+schema.sql
