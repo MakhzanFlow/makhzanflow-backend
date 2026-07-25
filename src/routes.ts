@@ -12,7 +12,9 @@ router.use("/companies", companiesRoutes);
 // router.use("/users", usersRoutes);
 // router.use("/products", productsRoutes);
 // router.use("/inventory", inventoryRoutes);
-// router.use("/customers", customersRoutes);
+import customersRoutes from "./modules/customers/customers.routes.js";
+
+router.use("/customers", customersRoutes);
 // router.use("/invoices", invoicesRoutes);
 // router.use("/payments", paymentsRoutes);
 // router.use("/subscriptions", subscriptionsRoutes);

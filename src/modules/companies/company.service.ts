@@ -4,6 +4,7 @@ import { member_role } from '../../../generated/prisma/client.js';
 import { uploadImageBase64 } from '../../shared/utils/cloudinary.js';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
+import { buildPermissionObject } from '../../shared/constants/permissions.js';
 
 export class CompanyService {
   constructor(private companyRepository: CompanyRepository) {}
@@ -122,7 +123,8 @@ export class CompanyService {
       throw new AppError(400, 'User is already a member of this company', 'errors.alreadyMember');
     }
 
-    return this.companyRepository.addMember(companyId, targetUserId, role, permissions);
+    const permObject = Array.isArray(permissions) ? buildPermissionObject(permissions) : permissions;
+    return this.companyRepository.addMember(companyId, targetUserId, role, permObject);
   }
 
   /**
@@ -191,7 +193,11 @@ export class CompanyService {
       }
     }
 
-    return this.companyRepository.updateMember(companyId, targetUserId, data);
+    const updateData: any = { ...data };
+    if (updateData.permissions && Array.isArray(updateData.permissions)) {
+      updateData.permissions = buildPermissionObject(updateData.permissions);
+    }
+    return this.companyRepository.updateMember(companyId, targetUserId, updateData);
   }
 
   /**

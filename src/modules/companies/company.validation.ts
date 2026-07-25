@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { allPermissionKeys } from '../../shared/constants/permissions.js';
+
+const allPerms = allPermissionKeys() as [string, ...string[]];
+
+const permissionSelectionSchema = z.array(z.enum(allPerms)).min(0);
 
 export const createCompanySchema = z.object({
   body: z.object({
@@ -18,13 +23,13 @@ export const addMemberSchema = z.object({
   body: z.object({
     targetUserId: z.string().uuid('Invalid user ID'),
     role: z.enum(['owner', 'admin', 'member']),
-    permissions: z.record(z.string(), z.any()).optional(),
+    permissions: permissionSelectionSchema.optional().default([]),
   }),
 });
 
 export const updateMemberSchema = z.object({
   body: z.object({
     role: z.enum(['owner', 'admin', 'member']).optional(),
-    permissions: z.record(z.string(), z.any()).optional(),
+    permissions: permissionSelectionSchema.optional(),
   }),
 });
