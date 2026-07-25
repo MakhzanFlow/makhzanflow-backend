@@ -101,6 +101,8 @@ CREATE TABLE customers (
     phone VARCHAR(50),
     email VARCHAR(255),
     address TEXT,
+    opening_balance DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    image_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
