@@ -22,3 +22,6 @@ prisma*
 makhzanflow-postman.md
 postman/
 schema.sql
+
+# Uploaded files
+uploads/

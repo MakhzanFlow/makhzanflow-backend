@@ -1,6 +1,36 @@
 import i18next from "i18next";
 import * as middleware from "i18next-http-middleware";
 
+const enProducts = {
+  created: "Product created successfully",
+  updated: "Product updated successfully",
+  deleted: "Product deleted successfully",
+  imageUploaded: "Image uploaded successfully",
+  errors: {
+    productNotFound: "Product not found",
+    productHasInvoiceReferences: "Cannot delete product that is referenced in invoices",
+    productSkuExists: "A product with this SKU already exists",
+    productBarcodeExists: "A product with this barcode already exists",
+    productDuplicate: "A product with these details already exists",
+    invalidFileType: "Invalid file type. Allowed: jpg, jpeg, png, webp",
+  },
+};
+
+const arProducts = {
+  created: "تم إنشاء المنتج بنجاح",
+  updated: "تم تحديث المنتج بنجاح",
+  deleted: "تم حذف المنتج بنجاح",
+  imageUploaded: "تم رفع الصورة بنجاح",
+  errors: {
+    productNotFound: "المنتج غير موجود",
+    productHasInvoiceReferences: "لا يمكن حذف منتج مرتبط بالفواتير",
+    productSkuExists: "يوجد منتج بنفس رمز SKU",
+    productBarcodeExists: "يوجد منتج بنفس الباركود",
+    productDuplicate: "يوجد منتج بنفس البيانات",
+    invalidFileType: "نوع الملف غير صالح. الأنواع المسموحة: jpg, jpeg, png, webp",
+  },
+};
+
 const enAuth = {
   register: { success: "Account created. Please check your email to verify your account." },
   login: { success: "Logged in successfully" },
@@ -62,11 +92,11 @@ const arAuth = {
 await i18next.use(middleware.LanguageDetector).init({
   fallbackLng: "en",
   preload: ["en", "ar"],
-  ns: ["auth"],
+  ns: ["auth", "products"],
   defaultNS: "auth",
   resources: {
-    en: { auth: enAuth },
-    ar: { auth: arAuth },
+    en: { auth: enAuth, products: enProducts },
+    ar: { auth: arAuth, products: arProducts },
   },
   detection: {
     order: ["header", "querystring"],

@@ -1,3 +1,5 @@
+import "reflect-metadata";
+import "./shared/di/container.js";
 import app from "./app.js";
 import { env } from "./config/env.js";
 import { disconnect, testConnection } from "./database/prisma.js";
