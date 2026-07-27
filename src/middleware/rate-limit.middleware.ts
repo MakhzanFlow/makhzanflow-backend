@@ -18,6 +18,15 @@ export const loginLimiter = rateLimit({
   },
 });
 
+export const createProductLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
+});
+
 export const resendVerifyLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 1,
