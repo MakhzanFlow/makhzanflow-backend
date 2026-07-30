@@ -3,6 +3,7 @@ import { hashPassword, comparePassword } from '../../shared/utils/password.js';
 import { generateAccessToken, generateRefreshToken } from '../../shared/utils/jwt.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import type { IEmailService } from '../../types/email-service.js';
+import type { UserResponse, LoginResponse, VerifyEmailResponse } from './auth.dto.js';
 
 export class AuthService {
   private generateOtp(): string {
@@ -15,7 +16,19 @@ export class AuthService {
     private emailService: IEmailService
   ) {}
 
-  async register(data: any) {
+  private toUserResponse(user: { id: string; name: string; email: string; is_verified: boolean; verified_at: Date | null; created_at: Date | null; updated_at: Date | null }): UserResponse {
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      is_verified: user.is_verified,
+      verified_at: user.verified_at,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+    };
+  }
+
+  async register(data: any): Promise<UserResponse> {
     const existingUser = await this.userRepository.findByEmail(data.email);
     if (existingUser) {
       throw new AppError(409, 'Email is already in use', 'errors.emailExists');
@@ -30,7 +43,7 @@ export class AuthService {
 
     const token = this.generateOtp();
     const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 minutes expiry
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
     await this.verificationTokenRepo.create({
       token,
@@ -40,12 +53,10 @@ export class AuthService {
 
     await this.emailService.sendVerificationEmail(user.email, user.name, token);
 
-    const { password_hash, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    return this.toUserResponse(user);
   }
 
-  async verifyEmail(email: string, token: string) {
-    // 1. Find user by email
+  async verifyEmail(email: string, token: string): Promise<VerifyEmailResponse> {
     const user = await this.userRepository.findByEmail(email);
     if (!user) {
       throw new AppError(404, 'No account found with this email', 'errors.emailNotFound');
@@ -55,24 +66,20 @@ export class AuthService {
       throw new AppError(400, 'Email is already verified', 'errors.alreadyVerified');
     }
 
-    // 2. Find the verification token that belongs to THIS user
     const verificationToken = await this.verificationTokenRepo.findByUserId(user.id);
     if (!verificationToken) {
       throw new AppError(400, 'No verification code found. Please request a new one.', 'errors.invalidVerificationToken');
     }
 
-    // 3. Check expiry
     if (verificationToken.expires_at < new Date()) {
       await this.verificationTokenRepo.deleteByUserId(user.id);
       throw new AppError(400, 'Verification code has expired. Please request a new one.', 'errors.invalidVerificationToken');
     }
 
-    // 4. Match the code
     if (verificationToken.token !== token) {
       throw new AppError(400, 'Invalid verification code', 'errors.invalidVerificationToken');
     }
 
-    // 5. Mark as verified
     const updatedUser = await this.userRepository.update(user.id, {
       is_verified: true,
       verified_at: new Date(),
@@ -80,7 +87,6 @@ export class AuthService {
 
     await this.verificationTokenRepo.deleteByUserId(user.id);
 
-    // 6. Auto-login: generate tokens so user doesn't need to log in again
     const payload = { id: user.id, email: user.email };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
@@ -94,11 +100,10 @@ export class AuthService {
       users: { connect: { id: user.id } },
     });
 
-    const { password_hash, ...userWithoutPassword } = updatedUser;
-    return { accessToken, refreshToken, user: userWithoutPassword };
+    return { accessToken, refreshToken, user: this.toUserResponse(updatedUser) };
   }
 
-  async resendVerificationEmail(email: string) {
+  async resendVerificationEmail(email: string): Promise<void> {
     const user = await this.userRepository.findByEmail(email);
     if (!user) {
       throw new AppError(404, 'User not found', 'errors.userNotFound');
@@ -123,7 +128,7 @@ export class AuthService {
     await this.emailService.sendVerificationEmail(user.email, user.name, token);
   }
 
-  async login(data: any) {
+  async login(data: any): Promise<LoginResponse> {
     const user = await this.userRepository.findByEmail(data.email);
     if (!user) {
       throw new AppError(401, 'Invalid email or password', 'errors.invalidCredentials');
@@ -143,7 +148,7 @@ export class AuthService {
     const refreshToken = generateRefreshToken(payload);
 
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
+    expiresAt.setDate(expiresAt.getDate() + 30);
 
     await this.refreshTokenRepo.create({
       token: refreshToken,
@@ -151,11 +156,10 @@ export class AuthService {
       users: { connect: { id: user.id } },
     });
 
-    const { password_hash, ...userWithoutPassword } = user;
-    return { accessToken, refreshToken, user: userWithoutPassword };
+    return { accessToken, refreshToken, user: this.toUserResponse(user) };
   }
 
-  async refreshToken(token: string) {
+  async refreshToken(token: string): Promise<{ accessToken: string; refreshToken: string }> {
     const refreshTokenDoc = await this.refreshTokenRepo.findByToken(token);
     if (!refreshTokenDoc) {
       throw new AppError(401, 'Invalid refresh token', 'errors.invalidRefreshToken');
@@ -189,16 +193,15 @@ export class AuthService {
     return { accessToken, refreshToken: newRefreshToken };
   }
 
-  async logout(token: string) {
+  async logout(token: string): Promise<void> {
     await this.refreshTokenRepo.deleteByToken(token);
   }
 
-  async getProfile(userId: string) {
+  async getProfile(userId: string): Promise<UserResponse> {
     const user = await this.userRepository.findById(userId);
     if (!user) {
       throw new AppError(404, 'User not found', 'errors.userNotFound');
     }
-    const { password_hash, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    return this.toUserResponse(user);
   }
 }

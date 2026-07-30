@@ -9,6 +9,8 @@ import type {
 } from "./products.types.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/client.js";
+import type { ProductResponse } from './products.dto.js';
+import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
 
 @injectable()
 export class ProductService {
@@ -17,7 +19,25 @@ export class ProductService {
     @inject(ActivityLogService) private activityLogService: ActivityLogService
   ) {}
 
-  async create(data: CreateProductInput, userId: string) {
+  private toProductResponse(product: any): ProductResponse {
+    return {
+      id: product.id,
+      company_id: product.company_id,
+      name: product.name,
+      sku: product.sku,
+      barcode: product.barcode,
+      price: Number(product.price),
+      stock: product.stock,
+      min_stock: product.min_stock,
+      image_url: product.image_url,
+      expiry_date: product.expiry_date,
+      is_active: product.is_active,
+      created_at: product.created_at,
+      updated_at: product.updated_at,
+    };
+  }
+
+  async create(data: CreateProductInput, userId: string): Promise<ProductResponse> {
     const productData: Prisma.productsUncheckedCreateInput = {
       name: data.name,
       sku: data.sku ?? await this.generateSku(data.company_id),
@@ -40,18 +60,18 @@ export class ProductService {
       action: "create",
     });
 
-    return product;
+    return this.toProductResponse(product);
   }
 
-  async findById(id: string, companyId: string) {
+  async findById(id: string, companyId: string): Promise<ProductResponse> {
     const product = await this.productRepository.findById(id, companyId);
     if (!product) {
       throw new AppError(404, "Product not found", "errors.productNotFound");
     }
-    return product;
+    return this.toProductResponse(product);
   }
 
-  async list(params: ListProductParams) {
+  async list(params: ListProductParams): Promise<PaginatedResponse<ProductResponse>> {
     const { companyId, page, limit, search, sort, order, low_stock, expiry_before, expiry_after, is_active } = params;
     const skip = (page - 1) * limit;
 
@@ -72,7 +92,7 @@ export class ProductService {
         this.productRepository.countLowStock(filters),
       ]);
       return {
-        data: products,
+        data: products.map((p) => this.toProductResponse(p)),
         pagination: { page, limit, total, pages: Math.ceil(total / limit) },
       };
     }
@@ -106,7 +126,7 @@ export class ProductService {
     ]);
 
     return {
-      data: products,
+      data: products.map((p) => this.toProductResponse(p)),
       pagination: {
         page,
         limit,
@@ -116,7 +136,7 @@ export class ProductService {
     };
   }
 
-  async update(id: string, companyId: string, data: UpdateProductInput, userId: string) {
+  async update(id: string, companyId: string, data: UpdateProductInput, userId: string): Promise<ProductResponse> {
     const existing = await this.productRepository.findById(id, companyId);
     if (!existing) {
       throw new AppError(404, "Product not found", "errors.productNotFound");
@@ -143,13 +163,13 @@ export class ProductService {
       entity: "product",
       entity_id: id,
       action: "update",
-      changes: { old: existing, new: product },
+      changes: { old: existing, new: product } as any,
     });
 
-    return product;
+    return this.toProductResponse(product);
   }
 
-  async delete(id: string, companyId: string, userId: string) {
+  async delete(id: string, companyId: string, userId: string): Promise<void> {
     const existing = await this.productRepository.findById(id, companyId);
     if (!existing) {
       throw new AppError(404, "Product not found", "errors.productNotFound");
@@ -203,7 +223,7 @@ export class ProductService {
     throw error;
   }
 
-  async uploadImage(id: string, companyId: string, imageUrl: string, userId: string) {
+  async uploadImage(id: string, companyId: string, imageUrl: string, userId: string): Promise<ProductResponse> {
     const existing = await this.productRepository.findById(id, companyId);
     if (!existing) {
       throw new AppError(404, "Product not found", "errors.productNotFound");
@@ -222,6 +242,6 @@ export class ProductService {
       changes: { old: { image_url: existing.image_url }, new: { image_url: imageUrl } },
     });
 
-    return product;
+    return this.toProductResponse(product);
   }
 }
