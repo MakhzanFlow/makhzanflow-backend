@@ -10,6 +10,7 @@ import {
   listCustomersSchema,
   debtorsListSchema,
   customerIdParamSchema,
+  customerTransactionsQuerySchema,
 } from './customers.validation.js';
 import multer from 'multer';
 import path from 'path';
@@ -50,6 +51,8 @@ router.get('/summary', authorize('customers.read'), customerController.getSummar
 router.get('/debtors', authorize('customers.read'), validate(debtorsListSchema), customerController.getDebtors);
 router.get('/:id', authorize('customers.read'), validate(customerIdParamSchema), customerController.getById);
 router.get('/:id/debt', authorize('customers.read'), validate(customerIdParamSchema), customerController.getDebt);
+router.get('/:id/invoices', authorize('customers.read'), validate(customerIdParamSchema), validate(customerTransactionsQuerySchema), customerController.getInvoices);
+router.get('/:id/payments', authorize('customers.read'), validate(customerIdParamSchema), validate(customerTransactionsQuerySchema), customerController.getPayments);
 router.post('/', authorize('customers.create'), validate(createCustomerSchema), customerController.create);
 router.put('/:id', authorize('customers.update'), upload.single('image'), customerController.update);
 router.delete('/:id', authorize('customers.delete'), validate(customerIdParamSchema), customerController.delete);

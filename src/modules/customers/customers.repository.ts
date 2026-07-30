@@ -1,6 +1,8 @@
+import { injectable } from 'tsyringe';
 import { prisma } from '../../database/prisma.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 
+@injectable()
 export class CustomerRepository {
   async findById(id: string, companyId: string) {
     return prisma.customers.findFirst({
@@ -131,6 +133,43 @@ export class CustomerRepository {
 
   async createInvoice(data: Prisma.invoicesUncheckedCreateInput) {
     return prisma.invoices.create({ data });
+  }
+
+  async findRecentPayments(customerId: string, companyId: string, limit: number) {
+    return prisma.payments.findMany({
+      where: {
+        invoices: {
+          customer_id: customerId,
+          company_id: companyId,
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      include: {
+        invoices: { select: { invoice_number: true } },
+      },
+    });
+  }
+
+  async findPaginatedInvoices(customerId: string, companyId: string, skip: number, take: number) {
+    const where = { customer_id: customerId, company_id: companyId };
+    return Promise.all([
+      prisma.invoices.findMany({ where, skip, take, orderBy: { created_at: 'desc' } }),
+      prisma.invoices.count({ where }),
+    ]);
+  }
+
+  async findPaginatedPayments(customerId: string, companyId: string, skip: number, take: number) {
+    const where = {
+      invoices: { customer_id: customerId, company_id: companyId },
+    };
+    return Promise.all([
+      prisma.payments.findMany({
+        where, skip, take, orderBy: { created_at: 'desc' },
+        include: { invoices: { select: { invoice_number: true } } },
+      }),
+      prisma.payments.count({ where }),
+    ]);
   }
 
   async createCustomerAndInvoiceInTransaction(

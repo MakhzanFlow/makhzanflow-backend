@@ -1,3 +1,4 @@
+import { injectable, inject } from 'tsyringe';
 import { CustomerRepository } from './customers.repository.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import type {
@@ -5,18 +6,22 @@ import type {
   UpdateCustomerInput,
   ListCustomerParams,
   DebtorsParams,
-  CustomerDebt,
-  DebtBreakdownItem,
-  CustomerDetail,
-  CustomerListItem,
-  CustomerSummary,
-  CustomerDebtorItem,
-  PaginatedResult,
-  ImageUploadResult,
 } from '../../types/customer.js';
+import type {
+  CustomerResponse,
+  CustomerCreatedResponse,
+  CustomerDetailResponse,
+  CustomerSummaryResponse,
+  CustomerDebtorItem,
+  CustomerInvoiceItem,
+  CustomerPaymentItem,
+  CustomerDebtResponse,
+} from './customers.dto.js';
+import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
 
+@injectable()
 export class CustomerService {
-  constructor(private customerRepository: CustomerRepository) {}
+  constructor(@inject(CustomerRepository) private customerRepository: CustomerRepository) {}
 
   private generateInvoiceNumber(companyId: string, lastNumber: string | null): string {
     const today = new Date();
@@ -25,7 +30,32 @@ export class CustomerService {
     return `OB-${dateStr}-${String(seq).padStart(4, '0')}`;
   }
 
-  async create(data: CreateCustomerInput) {
+  private toCustomerResponse(customer: {
+    id: string;
+    name: string;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    opening_balance: { toString: () => string } | number;
+    image_url: string | null;
+    created_at: Date | null;
+    updated_at: Date | null;
+  }, currentDebt: number): CustomerResponse {
+    return {
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      address: customer.address,
+      opening_balance: Number(customer.opening_balance),
+      image_url: customer.image_url,
+      current_debt: currentDebt,
+      created_at: customer.created_at,
+      updated_at: customer.updated_at,
+    };
+  }
+
+  async create(data: CreateCustomerInput): Promise<CustomerCreatedResponse> {
     const openingBalance = data.opening_balance ?? 0;
 
     const customerData = {
@@ -52,8 +82,7 @@ export class CustomerService {
       );
 
       return {
-        ...customer,
-        current_debt: Number(invoice.total_amount),
+        ...this.toCustomerResponse(customer, Number(invoice.total_amount)),
         opening_balance_invoice: {
           id: invoice.id,
           invoice_number: invoice.invoice_number,
@@ -65,13 +94,10 @@ export class CustomerService {
 
     const customer = await this.customerRepository.create(customerData);
 
-    return {
-      ...customer,
-      current_debt: 0,
-    };
+    return this.toCustomerResponse(customer, 0);
   }
 
-  async findById(id: string, companyId: string) {
+  async findById(id: string, companyId: string): Promise<CustomerDetailResponse> {
     const customer = await this.customerRepository.findById(id, companyId);
     if (!customer) {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
@@ -104,7 +130,7 @@ export class CustomerService {
     };
   }
 
-  async list(params: ListCustomerParams) {
+  async list(params: ListCustomerParams): Promise<PaginatedResponse<CustomerResponse>> {
     const { companyId, page, limit, search, sort, order, debt_status } = params;
     const skip = (page - 1) * limit;
 
@@ -136,18 +162,7 @@ export class CustomerService {
       debtMap.set(c.id, this.calculateDebt(c));
     }
 
-    let result = customers.map((c) => ({
-      id: c.id,
-      name: c.name,
-      phone: c.phone,
-      email: c.email,
-      address: c.address,
-      opening_balance: Number(c.opening_balance),
-      image_url: c.image_url,
-      current_debt: debtMap.get(c.id) ?? Number(c.opening_balance),
-      created_at: c.created_at,
-      updated_at: c.updated_at,
-    }));
+    let result = customers.map((c) => this.toCustomerResponse(c, debtMap.get(c.id) ?? Number(c.opening_balance)));
 
     if (debt_status && debt_status !== 'all') {
       result = result.filter((c) => {
@@ -169,7 +184,7 @@ export class CustomerService {
     };
   }
 
-  async update(id: string, companyId: string, data: UpdateCustomerInput, imageUrl?: string) {
+  async update(id: string, companyId: string, data: UpdateCustomerInput, imageUrl?: string): Promise<CustomerResponse> {
     const existing = await this.customerRepository.findById(id, companyId);
     if (!existing) {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
@@ -190,13 +205,10 @@ export class CustomerService {
 
     const debt = this.calculateDebt(customer);
 
-    return {
-      ...customer,
-      current_debt: debt,
-    };
+    return this.toCustomerResponse(customer, debt);
   }
 
-  async delete(id: string, companyId: string) {
+  async delete(id: string, companyId: string): Promise<void> {
     const existing = await this.customerRepository.findById(id, companyId);
     if (!existing) {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
@@ -214,7 +226,7 @@ export class CustomerService {
     await this.customerRepository.delete(id);
   }
 
-  async getDebt(id: string, companyId: string): Promise<CustomerDebt> {
+  async getDebt(id: string, companyId: string): Promise<CustomerDebtResponse> {
     const customer = await this.customerRepository.findByIdWithInvoices(id, companyId);
     if (!customer) {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
@@ -223,7 +235,7 @@ export class CustomerService {
     const openingBalance = Number(customer.opening_balance);
     let totalInvoiceAmount = 0;
     let totalPaid = 0;
-    const breakdown: DebtBreakdownItem[] = [];
+    const breakdown: CustomerDebtResponse['breakdown'] = [];
 
     for (const invoice of customer.invoices) {
       if (invoice.status === 'canceled') continue;
@@ -244,6 +256,8 @@ export class CustomerService {
 
     const currentDebt = totalInvoiceAmount - totalPaid;
 
+    const recentPayments = await this.customerRepository.findRecentPayments(id, companyId, 10);
+
     return {
       customer_id: customer.id,
       customer_name: customer.name,
@@ -252,10 +266,78 @@ export class CustomerService {
       total_paid: totalPaid,
       current_debt: currentDebt,
       breakdown,
+      recent_payments: recentPayments.map((p) => ({
+        id: p.id,
+        invoice_id: p.invoice_id,
+        invoice_number: p.invoices.invoice_number,
+        amount: Number(p.amount),
+        method: p.method,
+        reference_number: p.reference_number,
+        notes: p.notes,
+        created_at: p.created_at,
+      })),
     };
   }
 
-  async getSummary(companyId: string) {
+  async getInvoices(id: string, companyId: string, page: number, limit: number): Promise<PaginatedResponse<CustomerInvoiceItem>> {
+    const skip = (page - 1) * limit;
+    const customer = await this.customerRepository.findById(id, companyId);
+    if (!customer) {
+      throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
+    }
+
+    const [invoices, total] = await this.customerRepository.findPaginatedInvoices(id, companyId, skip, limit);
+
+    return {
+      data: invoices.map((inv) => ({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        status: inv.status,
+        total_amount: Number(inv.total_amount),
+        discount_amount: Number(inv.discount_amount),
+        tax_amount: Number(inv.tax_amount),
+        due_date: inv.due_date,
+        created_at: inv.created_at,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getPayments(id: string, companyId: string, page: number, limit: number): Promise<PaginatedResponse<CustomerPaymentItem>> {
+    const skip = (page - 1) * limit;
+    const customer = await this.customerRepository.findById(id, companyId);
+    if (!customer) {
+      throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
+    }
+
+    const [payments, total] = await this.customerRepository.findPaginatedPayments(id, companyId, skip, limit);
+
+    return {
+      data: payments.map((p) => ({
+        id: p.id,
+        invoice_id: p.invoice_id,
+        invoice_number: p.invoices.invoice_number,
+        amount: Number(p.amount),
+        method: p.method,
+        reference_number: p.reference_number,
+        notes: p.notes,
+        created_at: p.created_at,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getSummary(companyId: string): Promise<CustomerSummaryResponse> {
     const customers = await this.customerRepository.findAllWithInvoices(companyId);
 
     let withDebt = 0;
@@ -277,7 +359,7 @@ export class CustomerService {
     };
   }
 
-  async getDebtors(params: DebtorsParams) {
+  async getDebtors(params: DebtorsParams): Promise<PaginatedResponse<CustomerDebtorItem>> {
     const { companyId, page, limit, search } = params;
     const skip = (page - 1) * limit;
 
@@ -314,7 +396,7 @@ export class CustomerService {
     };
   }
 
-  async uploadImage(id: string, companyId: string, imageUrl: string) {
+  async uploadImage(id: string, companyId: string, imageUrl: string): Promise<{ image_url: string | null }> {
     const existing = await this.customerRepository.findById(id, companyId);
     if (!existing) {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
