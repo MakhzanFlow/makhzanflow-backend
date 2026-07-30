@@ -35,3 +35,21 @@ export const resendVerifyLimiter = rateLimit({
     message: 'Too many requests. Please try again later.',
   },
 });
+
+export const createInvoiceLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
+});
+
+export const addPaymentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 15,
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
+});

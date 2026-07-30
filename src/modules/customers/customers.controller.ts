@@ -1,11 +1,10 @@
 import type { Response, NextFunction } from 'express';
 import type { TenantRequest } from '../../middleware/tenant.middleware.js';
 import { CustomerService } from './customers.service.js';
-import { CustomerRepository } from './customers.repository.js';
 import type { TFunction } from 'i18next';
+import { container } from 'tsyringe';
 
-const customerRepo = new CustomerRepository();
-const customerService = new CustomerService(customerRepo);
+const customerService = container.resolve(CustomerService);
 
 export class CustomerController {
   async create(req: TenantRequest, res: Response, next: NextFunction) {
@@ -147,6 +146,36 @@ export class CustomerController {
         limit: Number(req.query.limit) || 20,
         ...(search ? { search: String(search) } : {}),
       });
+      res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getInvoices(req: TenantRequest, res: Response, next: NextFunction) {
+    try {
+      const id = req.params.id as string;
+      const page = Number(req.query.page) || 1;
+      const limit = Number(req.query.limit) || 20;
+      const result = await customerService.getInvoices(id, req.companyId!, page, limit);
+      res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPayments(req: TenantRequest, res: Response, next: NextFunction) {
+    try {
+      const id = req.params.id as string;
+      const page = Number(req.query.page) || 1;
+      const limit = Number(req.query.limit) || 20;
+      const result = await customerService.getPayments(id, req.companyId!, page, limit);
       res.status(200).json({
         success: true,
         ...result,

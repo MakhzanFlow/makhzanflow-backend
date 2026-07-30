@@ -3,7 +3,7 @@ export interface CreateLogInput {
   user_id: string;
   entity: string;
   entity_id: string;
-  action: "create" | "update" | "delete";
+  action: "create" | "update" | "delete" | "cancel";
   changes?: Record<string, any> | null;
 }
 

@@ -6,7 +6,6 @@ export const createProductSchema = z.object({
     sku: z.string().max(100).optional().nullable(),
     barcode: z.string().max(100).optional().nullable(),
     price: z.number().min(0, "Price must be >= 0"),
-    cost: z.number().min(0).optional().default(0),
     stock: z.number().int().min(0).optional().default(0),
     min_stock: z.number().int().min(0).optional().default(0),
     expiry_date: z
@@ -24,7 +23,6 @@ export const updateProductSchema = z.object({
     sku: z.string().max(100).optional().nullable(),
     barcode: z.string().max(100).optional().nullable(),
     price: z.number().min(0, "Price must be >= 0").optional(),
-    cost: z.number().min(0).optional(),
     stock: z.number().int().min(0).optional(),
     min_stock: z.number().int().min(0).optional(),
     expiry_date: z
