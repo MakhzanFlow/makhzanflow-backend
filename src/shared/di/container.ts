@@ -5,6 +5,11 @@ import { ProductController } from "../../modules/products/products.controller.js
 import { ActivityLogRepository } from "../../modules/activity-logs/activity-logs.repository.js";
 import { ActivityLogService } from "../../modules/activity-logs/activity-logs.service.js";
 import { ActivityLogController } from "../../modules/activity-logs/activity-logs.controller.js";
+import { InvoiceRepository } from "../../modules/invoices/invoices.repository.js";
+import { InvoiceService } from "../../modules/invoices/invoices.service.js";
+import { InvoiceController } from "../../modules/invoices/invoices.controller.js";
+import { CustomerRepository } from "../../modules/customers/customers.repository.js";
+import { CustomerService } from "../../modules/customers/customers.service.js";
 
 container.registerSingleton(ProductRepository);
 container.registerSingleton(ActivityLogRepository);
@@ -12,3 +17,8 @@ container.registerSingleton(ActivityLogService);
 container.registerSingleton(ProductService);
 container.registerSingleton(ProductController);
 container.registerSingleton(ActivityLogController);
+container.registerSingleton(InvoiceRepository);
+container.registerSingleton(InvoiceService);
+container.registerSingleton(InvoiceController);
+container.registerSingleton(CustomerRepository);
+container.registerSingleton(CustomerService);

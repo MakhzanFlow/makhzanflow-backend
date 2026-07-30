@@ -57,6 +57,12 @@ const enAuth = {
     userNotFound: "User not found",
     rateLimit: "Too many requests. Please try again later.",
     unexpected: "Unexpected server error",
+    invoiceNotFound: "Invoice not found",
+    invoiceCanceled: "Cannot add payment to a canceled invoice",
+    invoiceAlreadyCanceled: "Invoice is already canceled",
+    invoiceAlreadyPaid: "Invoice is already fully paid",
+    paymentExceedsTotal: "Payment amount cannot exceed invoice total",
+    paymentExceedsRemaining: "Payment amount exceeds remaining amount",
   },
 };
 
@@ -86,17 +92,35 @@ const arAuth = {
     userNotFound: "المستخدم غير موجود",
     rateLimit: "طلبات كثيرة جدًا. يرجى المحاولة لاحقًا.",
     unexpected: "حدث خطأ غير متوقع في الخادم",
+    invoiceNotFound: "الفاتورة غير موجودة",
+    invoiceCanceled: "لا يمكن إضافة دفعة لفاتورة ملغاة",
+    invoiceAlreadyCanceled: "الفاتورة ملغاة بالفعل",
+    invoiceAlreadyPaid: "الفاتورة مدفوعة بالكامل بالفعل",
+    paymentExceedsTotal: "قيمة الدفعة لا يمكن أن تتجاوز إجمالي الفاتورة",
+    paymentExceedsRemaining: "قيمة الدفعة تتجاوز المبلغ المتبقي",
   },
+};
+
+const enInvoices = {
+  created: "Invoice created successfully",
+  paymentAdded: "Payment added successfully",
+  canceled: "Invoice canceled successfully",
+};
+
+const arInvoices = {
+  created: "تم إنشاء الفاتورة بنجاح",
+  paymentAdded: "تمت إضافة الدفعة بنجاح",
+  canceled: "تم إلغاء الفاتورة بنجاح",
 };
 
 await i18next.use(middleware.LanguageDetector).init({
   fallbackLng: "en",
   preload: ["en", "ar"],
-  ns: ["auth", "products"],
+  ns: ["auth", "products", "invoices"],
   defaultNS: "auth",
   resources: {
-    en: { auth: enAuth, products: enProducts },
-    ar: { auth: arAuth, products: arProducts },
+    en: { auth: enAuth, products: enProducts, invoices: enInvoices },
+    ar: { auth: arAuth, products: arProducts, invoices: arInvoices },
   },
   detection: {
     order: ["header", "querystring"],
