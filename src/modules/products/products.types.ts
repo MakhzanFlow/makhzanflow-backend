@@ -3,7 +3,6 @@ export interface CreateProductInput {
   sku?: string | null;
   barcode?: string | null;
   price: number;
-  cost?: number;
   stock?: number;
   min_stock?: number;
   expiry_date?: string | null;
@@ -16,7 +15,6 @@ export interface UpdateProductInput {
   sku?: string | null;
   barcode?: string | null;
   price?: number;
-  cost?: number;
   stock?: number;
   min_stock?: number;
   expiry_date?: string | null;
@@ -43,7 +41,6 @@ export interface ProductResponse {
   sku: string | null;
   barcode: string | null;
   price: number;
-  cost: number;
   stock: number;
   min_stock: number;
   image_url: string | null;

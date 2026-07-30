@@ -23,7 +23,6 @@ export class ProductService {
       sku: data.sku ?? await this.generateSku(data.company_id),
       barcode: data.barcode ?? null,
       price: data.price,
-      cost: data.cost ?? 0,
       stock: data.stock ?? 0,
       min_stock: data.min_stock ?? 0,
       expiry_date: data.expiry_date ? new Date(data.expiry_date) : null,
@@ -129,7 +128,6 @@ export class ProductService {
     if (data.sku !== undefined) updateData.sku = data.sku ?? null;
     if (data.barcode !== undefined) updateData.barcode = data.barcode ?? null;
     if (data.price !== undefined) updateData.price = data.price;
-    if (data.cost !== undefined) updateData.cost = data.cost;
     if (data.stock !== undefined) updateData.stock = data.stock;
     if (data.min_stock !== undefined) updateData.min_stock = data.min_stock;
     if (data.expiry_date !== undefined) {
