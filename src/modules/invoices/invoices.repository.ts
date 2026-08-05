@@ -166,6 +166,7 @@ export class InvoiceRepository {
 
         await tx.inventory_logs.create({
           data: {
+            company_id: data.company_id,
             product_id: item.product_id,
             user_id: userId,
             action: "sale",
@@ -180,6 +181,7 @@ export class InvoiceRepository {
       if (paidAmount > 0 && data.payment) {
         await tx.payments.create({
           data: {
+            company_id: data.company_id,
             invoice_id: invoice.id,
             amount: paidAmount,
             method: data.payment.method,
@@ -226,6 +228,7 @@ export class InvoiceRepository {
 
       await tx.payments.create({
         data: {
+          company_id: companyId,
           invoice_id: invoiceId,
           amount: input.amount,
           method: input.method,
@@ -280,6 +283,7 @@ export class InvoiceRepository {
 
           await tx.inventory_logs.create({
             data: {
+              company_id: companyId,
               product_id: item.product_id,
               user_id: userId,
               action: "return",
