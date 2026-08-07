@@ -1,6 +1,7 @@
 import { injectable } from 'tsyringe';
 import { prisma } from '../../database/prisma.js';
 import { Prisma, member_role } from '../../../generated/prisma/client.js';
+import { AppError } from '../../shared/errors/app-error.js';
 
 @injectable()
 export class CompanyRepository {
@@ -29,7 +30,7 @@ export class CompanyRepository {
     });
   }
 
-  async createCompanyWithOwner(companyData: Prisma.companiesCreateWithoutCompany_membersInput, ownerUserId: string) {
+  async createCompanyWithOwner(companyData: Prisma.companiesCreateWithoutCompany_membersInput & { invite_code?: string }, ownerUserId: string) {
     return prisma.$transaction(async (tx) => {
       const createdCompany = await tx.companies.create({ data: companyData });
 
@@ -196,6 +197,93 @@ export class CompanyRepository {
           },
         },
       },
+    });
+  }
+
+  async findByInviteCode(code: string) {
+    return prisma.companies.findFirst({ where: { invite_code: code } });
+  }
+
+  async createJoinRequest(companyId: string, userId: string) {
+    return prisma.join_requests.create({
+      data: { company_id: companyId, user_id: userId },
+    });
+  }
+
+  async findJoinRequest(companyId: string, userId: string) {
+    return prisma.join_requests.findFirst({
+      where: { company_id: companyId, user_id: userId },
+    });
+  }
+
+  async findJoinRequestById(requestId: string, companyId: string) {
+    return prisma.join_requests.findFirst({
+      where: { id: requestId, company_id: companyId },
+    });
+  }
+
+  async listPendingJoinRequests(companyId: string) {
+    return prisma.join_requests.findMany({
+      where: { company_id: companyId, status: 'pending' },
+      include: { users: { select: { id: true, name: true, email: true } } },
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  async approveJoinRequest(requestId: string, companyId: string, userId: string) {
+    try {
+      return await prisma.$transaction([
+        prisma.company_members.create({
+          data: {
+            company_id: companyId,
+            user_id: userId,
+            role: member_role.member,
+            permissions: {},
+          },
+        }),
+        prisma.join_requests.update({
+          where: { id: requestId },
+          data: { status: 'approved' },
+        }),
+      ]);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppError(409, 'User is already a member of this company', 'errors.alreadyMember');
+      }
+      throw error;
+    }
+  }
+
+  async rejectJoinRequest(requestId: string) {
+    return prisma.join_requests.update({
+      where: { id: requestId },
+      data: { status: 'rejected' },
+    });
+  }
+
+  async resetJoinRequest(requestId: string) {
+    return prisma.join_requests.update({
+      where: { id: requestId },
+      data: { status: 'pending', updated_at: new Date() },
+    });
+  }
+
+  async updateInviteCode(companyId: string, inviteCode: string | null) {
+    return prisma.companies.update({
+      where: { id: companyId },
+      data: { invite_code: inviteCode },
+    });
+  }
+
+  async findJoinRequestsByUser(userId: string) {
+    return prisma.join_requests.findMany({
+      where: { user_id: userId },
+      include: {
+        companies: {
+          select: { id: true, name: true, logo_url: true },
+        },
+      },
+      orderBy: { created_at: 'desc' },
     });
   }
 }

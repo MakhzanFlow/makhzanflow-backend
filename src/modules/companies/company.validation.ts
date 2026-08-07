@@ -33,3 +33,28 @@ export const updateMemberSchema = z.object({
     permissions: permissionSelectionSchema.optional(),
   }),
 });
+
+export const lookupCompanySchema = z.object({
+  query: z.object({
+    code: z.string().min(1, 'Code is required'),
+  }),
+});
+
+export const joinCompanySchema = z.object({
+  body: z.object({
+    invite_code: z.string().min(1, 'Invite code is required'),
+  }),
+});
+
+export const joinRequestActionSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid company ID'),
+    requestId: z.string().uuid('Invalid request ID'),
+  }),
+});
+
+export const regenerateInviteCodeSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid company ID'),
+  }),
+});
