@@ -1,6 +1,8 @@
+import { injectable } from 'tsyringe';
 import { prisma } from '../../database/prisma.js';
 import { Prisma, member_role } from '../../../generated/prisma/client.js';
 
+@injectable()
 export class CompanyRepository {
   /**
    * Find a company by its ID
