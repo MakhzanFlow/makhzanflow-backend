@@ -17,6 +17,13 @@ export class CompanyController {
     this.addMember = this.addMember.bind(this);
     this.updateMember = this.updateMember.bind(this);
     this.removeMember = this.removeMember.bind(this);
+    this.lookupCompany = this.lookupCompany.bind(this);
+    this.requestJoin = this.requestJoin.bind(this);
+    this.listJoinRequests = this.listJoinRequests.bind(this);
+    this.approveJoinRequest = this.approveJoinRequest.bind(this);
+    this.rejectJoinRequest = this.rejectJoinRequest.bind(this);
+    this.regenerateInviteCode = this.regenerateInviteCode.bind(this);
+    this.getMyJoinRequests = this.getMyJoinRequests.bind(this);
   }
   /**
    * Create a new company (logged-in user becomes Owner)
@@ -219,6 +226,116 @@ export class CompanyController {
         success: true,
         message: 'Member removed successfully',
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Look up a company by invite code
+   */
+  async lookupCompany(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const code = req.query['code'] as string;
+      const company = await this.companyService.lookupCompany(code);
+
+      if (!company) {
+        res.status(404).json({ success: false, message: 'Company not found' });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: company });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Request to join a company via invite code
+   */
+  async requestJoin(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user.id;
+      const { invite_code } = req.body;
+      const result = await this.companyService.requestJoin(invite_code, userId);
+
+      res.status(201).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * List pending join requests for a company (owner/admin)
+   */
+  async listJoinRequests(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const operatorUserId = req.user.id;
+      const companyId = req.params['id'] as string;
+      const requests = await this.companyService.listJoinRequests(operatorUserId, companyId);
+
+      res.status(200).json({ success: true, data: requests });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Approve a join request (owner/admin)
+   */
+  async approveJoinRequest(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const operatorUserId = req.user.id;
+      const companyId = req.params['id'] as string;
+      const requestId = req.params['requestId'] as string;
+      await this.companyService.approveJoinRequest(operatorUserId, companyId, requestId);
+
+      res.status(200).json({ success: true, message: 'Join request approved' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Reject a join request (owner/admin)
+   */
+  async rejectJoinRequest(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const operatorUserId = req.user.id;
+      const companyId = req.params['id'] as string;
+      const requestId = req.params['requestId'] as string;
+      await this.companyService.rejectJoinRequest(operatorUserId, companyId, requestId);
+
+      res.status(200).json({ success: true, message: 'Join request rejected' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Regenerate the company invite code (owner only)
+   */
+  async regenerateInviteCode(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const operatorUserId = req.user.id;
+      const companyId = req.params['id'] as string;
+      const result = await this.companyService.regenerateInviteCode(operatorUserId, companyId);
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get all join requests for the current user across all companies
+   */
+  async getMyJoinRequests(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user.id;
+      const requests = await this.companyService.getMyJoinRequests(userId);
+
+      res.status(200).json({ success: true, data: requests });
     } catch (error) {
       next(error);
     }

@@ -4,6 +4,7 @@ export interface CompanyResponse {
   id: string;
   name: string;
   logo_url: string | null;
+  invite_code: string | null;
   created_at: Date | null;
   updated_at: Date | null;
 }
@@ -44,6 +45,7 @@ export interface UserCompanyResponse {
   id: string;
   name: string;
   logo_url: string | null;
+  invite_code: string | null;
   created_at: Date | null;
   updated_at: Date | null;
   company_members: Array<{

@@ -1,7 +1,9 @@
 import { injectable, inject } from 'tsyringe';
+import crypto from 'crypto';
 import { CompanyRepository } from './company.repository.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import { member_role } from '../../../generated/prisma/client.js';
+import { COMPANY } from '../../shared/constants/index.js';
 import { uploadImageBase64 } from '../../shared/utils/cloudinary.js';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
@@ -38,14 +40,53 @@ export class CompanyService {
     return logoUrl;
   }
 
-  private toCompanyResponse(company: { id: string; name: string; logo_url: string | null; created_at: Date | null; updated_at: Date | null }): CompanyResponse {
+  private toCompanyResponse(company: { id: string; name: string; logo_url: string | null; invite_code: string | null; created_at: Date | null; updated_at: Date | null }) {
     return {
       id: company.id,
       name: company.name,
       logo_url: company.logo_url,
+      invite_code: company.invite_code,
       created_at: company.created_at,
       updated_at: company.updated_at,
     };
+  }
+
+  private async generateInviteCode(): Promise<string> {
+    let attempts = 0;
+    do {
+      let code = '';
+      for (let i = 0; i < COMPANY.INVITE_CODE_LENGTH; i++) {
+        code += COMPANY.INVITE_CODE_CHARS[crypto.randomInt(COMPANY.INVITE_CODE_CHARS.length)];
+      }
+      const existing = await this.companyRepository.findByInviteCode(code);
+      if (!existing) return code;
+      attempts++;
+    } while (attempts < 10);
+    throw new AppError(500, 'Failed to generate unique invite code', 'errors.inviteCodeGenerationFailed');
+  }
+
+  private async requireMember(companyId: string, userId: string) {
+    const member = await this.companyRepository.findMember(companyId, userId);
+    if (!member) {
+      throw new AppError(403, 'You do not have access to this company', 'errors.forbidden');
+    }
+    return member;
+  }
+
+  private async requireOwnerOrAdmin(companyId: string, userId: string) {
+    const member = await this.requireMember(companyId, userId);
+    if (member.role !== member_role.owner && member.role !== member_role.admin) {
+      throw new AppError(403, 'Only owners and admins can perform this action', 'errors.unauthorized');
+    }
+    return member;
+  }
+
+  private async requireOwner(companyId: string, userId: string) {
+    const member = await this.requireMember(companyId, userId);
+    if (member.role !== member_role.owner) {
+      throw new AppError(403, 'Only the owner can perform this action', 'errors.unauthorized');
+    }
+    return member;
   }
 
   async createCompany(data: { name: string; logo_url?: string }, ownerUserId: string): Promise<CompanyResponse> {
@@ -59,9 +100,10 @@ export class CompanyService {
     }
 
     const logoUrl = await this.resolveLogoUrl(data.logo_url);
+    const inviteCode = await this.generateInviteCode();
 
     const company = await this.companyRepository.createCompanyWithOwner(
-      { name: data.name, logo_url: logoUrl },
+      { name: data.name, logo_url: logoUrl, invite_code: inviteCode },
       ownerUserId
     );
 
@@ -69,20 +111,20 @@ export class CompanyService {
   }
 
   async getCompanyDetails(companyId: string, userId: string): Promise<CompanyWithSubscription> {
-    const membership = await this.companyRepository.findMember(companyId, userId);
-    if (!membership) {
-      throw new AppError(403, 'You do not have access to this company', 'errors.forbidden');
-    }
+    const membership = await this.requireMember(companyId, userId);
 
     const company = await this.companyRepository.findById(companyId);
     if (!company) {
       throw new AppError(404, 'Company not found', 'errors.companyNotFound');
     }
 
+    const isAdminOrOwner = membership.role === member_role.owner || membership.role === member_role.admin;
+
     return {
       id: company.id,
       name: company.name,
       logo_url: company.logo_url,
+      invite_code: isAdminOrOwner ? company.invite_code : null,
       created_at: company.created_at,
       updated_at: company.updated_at,
       company_subscriptions: (company.company_subscriptions ?? []) as any,
@@ -90,10 +132,7 @@ export class CompanyService {
   }
 
   async updateCompany(companyId: string, data: { name?: string; logo_url?: string }, userId: string): Promise<CompanyResponse> {
-    const membership = await this.companyRepository.findMember(companyId, userId);
-    if (!membership || (membership.role !== member_role.owner && membership.role !== member_role.admin)) {
-      throw new AppError(403, 'Only owners and admins can update company details', 'errors.unauthorized');
-    }
+    await this.requireOwnerOrAdmin(companyId, userId);
 
     const { logo_url, ...cleanData } = data;
 
@@ -106,20 +145,14 @@ export class CompanyService {
   }
 
   async deleteCompany(companyId: string, userId: string): Promise<CompanyResponse> {
-    const membership = await this.companyRepository.findMember(companyId, userId);
-    if (!membership || membership.role !== member_role.owner) {
-      throw new AppError(403, 'Only the owner can delete the company', 'errors.unauthorized');
-    }
+    await this.requireOwner(companyId, userId);
 
     const company = await this.companyRepository.delete(companyId);
     return this.toCompanyResponse(company);
   }
 
   async listMembers(companyId: string, userId: string, pagination: { page?: number; limit?: number }): Promise<PaginatedResponse<CompanyMemberResponse>> {
-    const membership = await this.companyRepository.findMember(companyId, userId);
-    if (!membership) {
-      throw new AppError(403, 'You do not have access to this company', 'errors.forbidden');
-    }
+    await this.requireMember(companyId, userId);
 
     const result = await this.companyRepository.findMembers(companyId, pagination);
     return {
@@ -135,10 +168,7 @@ export class CompanyService {
     permissions: any = {},
     operatorUserId: string
   ): Promise<CompanyMemberResponse> {
-    const operator = await this.companyRepository.findMember(companyId, operatorUserId);
-    if (!operator || (operator.role !== member_role.owner && operator.role !== member_role.admin)) {
-      throw new AppError(403, 'Only owners and admins can add members', 'errors.unauthorized');
-    }
+    await this.requireOwnerOrAdmin(companyId, operatorUserId);
 
     const existingMember = await this.companyRepository.findMember(companyId, targetUserId);
     if (existingMember) {
@@ -151,10 +181,7 @@ export class CompanyService {
   }
 
   async removeMember(companyId: string, targetUserId: string, operatorUserId: string): Promise<CompanyMemberResponse> {
-    const operator = await this.companyRepository.findMember(companyId, operatorUserId);
-    if (!operator || (operator.role !== member_role.owner && operator.role !== member_role.admin)) {
-      throw new AppError(403, 'Only owners and admins can remove members', 'errors.unauthorized');
-    }
+    const operator = await this.requireOwnerOrAdmin(companyId, operatorUserId);
 
     const target = await this.companyRepository.findMember(companyId, targetUserId);
     if (!target) {
@@ -179,10 +206,7 @@ export class CompanyService {
     data: { role?: member_role; permissions?: any },
     operatorUserId: string
   ): Promise<CompanyMemberResponse> {
-    const operator = await this.companyRepository.findMember(companyId, operatorUserId);
-    if (!operator || (operator.role !== member_role.owner && operator.role !== member_role.admin)) {
-      throw new AppError(403, 'Only owners and admins can update members', 'errors.unauthorized');
-    }
+    const operator = await this.requireOwnerOrAdmin(companyId, operatorUserId);
 
     const target = await this.companyRepository.findMember(companyId, targetUserId);
     if (!target) {
@@ -212,7 +236,19 @@ export class CompanyService {
 
   async getUserCompanies(userId: string): Promise<UserCompanyResponse[]> {
     const companies = await this.companyRepository.findCompaniesByUserId(userId);
-    return companies as any;
+    return companies.map((company) => {
+      const member = company.company_members?.[0];
+      const isAdminOrOwner = member?.role === member_role.owner || member?.role === member_role.admin;
+      return {
+        id: company.id,
+        name: company.name,
+        logo_url: company.logo_url,
+        created_at: company.created_at,
+        updated_at: company.updated_at,
+        invite_code: isAdminOrOwner ? company.invite_code : null,
+        company_members: company.company_members ?? [],
+      } as UserCompanyResponse;
+    });
   }
 
   /**
@@ -241,10 +277,7 @@ export class CompanyService {
     targetUserId: string,
     operatorUserId: string
   ): Promise<MemberPermissionsResponse> {
-    const operator = await this.companyRepository.findMember(companyId, operatorUserId);
-    if (!operator) {
-      throw new AppError(403, 'You do not have access to this company', 'errors.forbidden');
-    }
+    const operator = await this.requireMember(companyId, operatorUserId);
 
     const isOwnPermissions = operatorUserId === targetUserId;
     const isOwnerOrAdmin = operator.role === member_role.owner || operator.role === member_role.admin;
@@ -266,5 +299,92 @@ export class CompanyService {
         ? allPermissionKeys()
         : flattenPermissions((target.permissions as Record<string, any>) ?? {}),
     };
+  }
+
+  async lookupCompany(code: string): Promise<{ id: string; name: string; logo_url: string | null } | null> {
+    const byCode = await this.companyRepository.findByInviteCode(code);
+    if (byCode) {
+      return { id: byCode.id, name: byCode.name, logo_url: byCode.logo_url };
+    }
+    return null;
+  }
+
+  async requestJoin(inviteCode: string, userId: string): Promise<{ company_id: string; status: string }> {
+    const company = await this.companyRepository.findByInviteCode(inviteCode);
+    if (!company) {
+      throw new AppError(404, 'Invalid invite code', 'errors.invalidInviteCode');
+    }
+
+    const existingMember = await this.companyRepository.findMember(company.id, userId);
+    if (existingMember) {
+      throw new AppError(409, 'You are already a member of this company', 'errors.alreadyMember');
+    }
+
+    const existingRequest = await this.companyRepository.findJoinRequest(company.id, userId);
+    if (existingRequest?.status === 'pending') {
+      throw new AppError(409, 'You already have a pending join request', 'errors.pendingRequest');
+    }
+    if (existingRequest?.status === 'approved') {
+      throw new AppError(409, 'You are already approved', 'errors.alreadyApproved');
+    }
+    if (existingRequest?.status === 'rejected') {
+      const rejectedAt = existingRequest.updated_at ?? existingRequest.created_at;
+      const cooldownDeadline = new Date(Date.now() - COMPANY.JOIN_REQUEST_COOLDOWN_MS);
+      if (rejectedAt && rejectedAt > cooldownDeadline) {
+        throw new AppError(429, 'You must wait 5 minutes before requesting again', 'errors.tooSoon');
+      }
+      await this.companyRepository.resetJoinRequest(existingRequest.id);
+      return { company_id: existingRequest.company_id, status: 'pending' };
+    }
+
+    const request = await this.companyRepository.createJoinRequest(company.id, userId);
+    return { company_id: request.company_id, status: request.status };
+  }
+
+  async listJoinRequests(operatorUserId: string, companyId: string) {
+    await this.requireOwnerOrAdmin(companyId, operatorUserId);
+    return this.companyRepository.listPendingJoinRequests(companyId);
+  }
+
+  async approveJoinRequest(operatorUserId: string, companyId: string, requestId: string) {
+    await this.requireOwnerOrAdmin(companyId, operatorUserId);
+
+    const request = await this.companyRepository.findJoinRequestById(requestId, companyId);
+    if (!request) {
+      throw new AppError(404, 'Join request not found', 'errors.joinRequestNotFound');
+    }
+    if (request.status !== 'pending') {
+      throw new AppError(400, 'Join request is not pending', 'errors.requestNotPending');
+    }
+
+    await this.companyRepository.approveJoinRequest(requestId, companyId, request.user_id);
+    return { success: true };
+  }
+
+  async rejectJoinRequest(operatorUserId: string, companyId: string, requestId: string) {
+    await this.requireOwnerOrAdmin(companyId, operatorUserId);
+
+    const request = await this.companyRepository.findJoinRequestById(requestId, companyId);
+    if (!request) {
+      throw new AppError(404, 'Join request not found', 'errors.joinRequestNotFound');
+    }
+    if (request.status !== 'pending') {
+      throw new AppError(400, 'Join request is not pending', 'errors.requestNotPending');
+    }
+
+    await this.companyRepository.rejectJoinRequest(requestId);
+    return { success: true };
+  }
+
+  async regenerateInviteCode(operatorUserId: string, companyId: string) {
+    await this.requireOwner(companyId, operatorUserId);
+
+    const newCode = await this.generateInviteCode();
+    await this.companyRepository.updateInviteCode(companyId, newCode);
+    return { invite_code: newCode };
+  }
+
+  async getMyJoinRequests(userId: string) {
+    return this.companyRepository.findJoinRequestsByUser(userId);
   }
 }

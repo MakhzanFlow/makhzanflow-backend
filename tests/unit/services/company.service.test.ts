@@ -72,7 +72,7 @@ void describe("CompanyService", () => {
         permissions: {},
       }));
 
-      const result = await service.getMemberPermissions(companyId, "target-1", "operator-1");
+      const result = await service.getMemberPermissions(companyId, "operator-1", "operator-1");
 
       assert.deepStrictEqual(result.permissions, []);
     });

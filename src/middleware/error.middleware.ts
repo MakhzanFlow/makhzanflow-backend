@@ -9,7 +9,14 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
   const t = req.t as TFunction;
 
   if (err instanceof AppError) {
-    const message = err.messageKey && t ? t(`errors.${err.messageKey.split('.').pop()}`) || err.message : err.message;
+    let message = err.message;
+    if (err.messageKey && t) {
+      const key = `errors.${err.messageKey.split('.').pop()}`;
+      const translated = t(key);
+      if (translated && translated !== key) {
+        message = translated;
+      }
+    }
     return res.status(err.statusCode).json({
       success: false,
       message,

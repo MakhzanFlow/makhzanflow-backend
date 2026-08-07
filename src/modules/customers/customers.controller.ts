@@ -1,6 +1,7 @@
 import type { Response, NextFunction } from 'express';
 import type { TenantRequest } from '../../middleware/tenant.middleware.js';
 import { CustomerService } from './customers.service.js';
+import { uploadImageBuffer } from '../../shared/utils/cloudinary.js';
 import type { TFunction } from 'i18next';
 import { container } from 'tsyringe';
 
@@ -78,7 +79,7 @@ export class CustomerController {
         return;
       }
 
-      const imageUrl = file ? `/uploads/customers/${file.filename}` : undefined;
+      const imageUrl = file ? await uploadImageBuffer(file.buffer, 'customer_images') : undefined;
       const customer = await customerService.update(id, req.companyId!, {
         name: name.trim(),
         phone: req.body.phone ?? null,
@@ -179,6 +180,30 @@ export class CustomerController {
       res.status(200).json({
         success: true,
         ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadImage(req: TenantRequest, res: Response, next: NextFunction) {
+    try {
+      const id = req.params.id as string;
+
+      if (!req.file) {
+        res.status(400).json({
+          success: false,
+          message: 'Image file is required',
+        });
+        return;
+      }
+
+      const imageUrl = await uploadImageBuffer(req.file.buffer, 'customer_images');
+      const result = await customerService.uploadImage(id, req.companyId!, imageUrl);
+
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       next(error);
