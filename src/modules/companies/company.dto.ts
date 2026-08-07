@@ -51,3 +51,25 @@ export interface UserCompanyResponse {
     permissions: Record<string, any> | any;
   }>;
 }
+
+export interface PermissionDescriptor {
+  key: string;
+  label: string;
+  description: string;
+}
+
+export interface PermissionGroupDescriptor {
+  key: string;
+  label: string;
+  description: string;
+  permissions: PermissionDescriptor[];
+}
+
+export interface PermissionCatalogResponse {
+  groups: PermissionGroupDescriptor[];
+}
+
+export interface MemberPermissionsResponse {
+  role: member_role;
+  permissions: string[];
+}

@@ -1,20 +1,29 @@
+import { injectable, inject } from 'tsyringe';
 import { CompanyRepository } from './company.repository.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import { member_role } from '../../../generated/prisma/client.js';
 import { uploadImageBase64 } from '../../shared/utils/cloudinary.js';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
-import { buildPermissionObject } from '../../shared/constants/permissions.js';
+import {
+  PERMISSION_GROUPS,
+  allPermissionKeys,
+  buildPermissionObject,
+  flattenPermissions,
+} from '../../shared/constants/permissions.js';
 import type {
   CompanyResponse,
   CompanyWithSubscription,
   CompanyMemberResponse,
   UserCompanyResponse,
+  PermissionCatalogResponse,
+  MemberPermissionsResponse,
 } from './company.dto.js';
 import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
 
+@injectable()
 export class CompanyService {
-  constructor(private companyRepository: CompanyRepository) {}
+  constructor(@inject(CompanyRepository) private companyRepository: CompanyRepository) {}
 
   private async resolveLogoUrl(logoUrl?: string | null): Promise<string | null> {
     if (!logoUrl) return null;
@@ -204,5 +213,58 @@ export class CompanyService {
   async getUserCompanies(userId: string): Promise<UserCompanyResponse[]> {
     const companies = await this.companyRepository.findCompaniesByUserId(userId);
     return companies as any;
+  }
+
+  /**
+   * Returns the global permission catalog for UI rendering.
+   * This is intentionally company-unaware — permissions are a fixed global set.
+   * If permissions ever become company-specific, this method must be updated
+   * to filter by companyId.
+   */
+  getPermissionCatalog(): PermissionCatalogResponse {
+    return {
+      groups: Object.entries(PERMISSION_GROUPS).map(([group, groupDef]) => ({
+        key: group,
+        label: groupDef.label,
+        description: groupDef.description,
+        permissions: Object.entries(groupDef.permissions).map(([action, perm]) => ({
+          key: `${group}.${action}`,
+          label: perm.label,
+          description: perm.description,
+        })),
+      })),
+    };
+  }
+
+  async getMemberPermissions(
+    companyId: string,
+    targetUserId: string,
+    operatorUserId: string
+  ): Promise<MemberPermissionsResponse> {
+    const operator = await this.companyRepository.findMember(companyId, operatorUserId);
+    if (!operator) {
+      throw new AppError(403, 'You do not have access to this company', 'errors.forbidden');
+    }
+
+    const isOwnPermissions = operatorUserId === targetUserId;
+    const isOwnerOrAdmin = operator.role === member_role.owner || operator.role === member_role.admin;
+    if (!isOwnPermissions && !isOwnerOrAdmin) {
+      throw new AppError(403, 'Only owners and admins can view other members\' permissions', 'errors.unauthorized');
+    }
+
+    const target = await this.companyRepository.findMember(companyId, targetUserId);
+    if (!target) {
+      throw new AppError(404, 'Member not found in this company', 'errors.memberNotFound');
+    }
+
+    const ownerOrAdmin =
+      target.role === member_role.owner || target.role === member_role.admin;
+
+    return {
+      role: target.role,
+      permissions: ownerOrAdmin
+        ? allPermissionKeys()
+        : flattenPermissions((target.permissions as Record<string, any>) ?? {}),
+    };
   }
 }

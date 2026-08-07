@@ -36,18 +36,26 @@ export function authorize(...requiredPermissions: string[]) {
         return next(new AppError(400, 'Company scope required', 'errors.companyScopeRequired'));
       }
 
-      const member = await resolveMemberPermissions(req.user.id, companyId);
-      if (!member) {
-        return next(new AppError(403, 'You are not a member of this company', 'errors.notCompanyMember'));
+      // Reuse data from scopeTenant if already resolved
+      let role = req.role;
+      let permissions = req.permissions;
+
+      if (!role || permissions === undefined) {
+        const member = await resolveMemberPermissions(req.user.id, companyId);
+        if (!member) {
+          return next(new AppError(403, 'You are not a member of this company', 'errors.notCompanyMember'));
+        }
+        role = member.role;
+        permissions = member.permissions;
       }
 
-      req.role = member.role;
+      req.role = role;
 
-      if (member.role === 'owner' || member.role === 'admin') {
+      if (role === 'owner' || role === 'admin') {
         return next();
       }
 
-      const memberPerms = member.permissions ?? {};
+      const memberPerms = permissions ?? {};
       const hasAll = memberPerms.all === true;
 
       if (hasAll) {
