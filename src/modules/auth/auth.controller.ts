@@ -4,13 +4,16 @@ import { UserRepository, VerificationTokenRepository, RefreshTokenRepository } f
 import { ResendEmailService } from '../../shared/utils/email-resend.js';
 import type { AuthRequest } from '../../middleware/auth.middleware.js';
 import type { TFunction } from 'i18next';
+import { CacheService } from '../../shared/cache/cache.service.js';
+import { redis } from '../../config/redis.js';
 
 // Instantiate dependencies (in a real app, use dependency injection container)
 const userRepo = new UserRepository();
 const verifyTokenRepo = new VerificationTokenRepository();
 const refreshTokenRepo = new RefreshTokenRepository();
 const emailService = new ResendEmailService();
-const authService = new AuthService(userRepo, verifyTokenRepo, refreshTokenRepo, emailService);
+const cache = new CacheService(redis);
+const authService = new AuthService(userRepo, verifyTokenRepo, refreshTokenRepo, emailService, cache);
 
 export class AuthController {
   async register(req: Request, res: Response, next: NextFunction) {

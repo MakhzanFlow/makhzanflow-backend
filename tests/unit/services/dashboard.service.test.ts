@@ -3,6 +3,7 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert";
 import { DashboardService } from "../../../src/modules/dashboard/dashboard.service.js";
 import { DashboardRepository } from "../../../src/modules/dashboard/dashboard.repository.js";
+import type { ICacheService } from "../../../src/shared/cache/cache.interface.js";
 
 function makeRepoStubs(): InstanceType<typeof DashboardRepository> {
   const repo = new DashboardRepository();
@@ -14,6 +15,15 @@ function makeRepoStubs(): InstanceType<typeof DashboardRepository> {
   return repo;
 }
 
+function makeCacheStub(): ICacheService {
+  return {
+    get: async () => null,
+    set: async () => {},
+    del: async () => {},
+    delPattern: async () => {},
+  };
+}
+
 const companyId = "company-uuid";
 
 void describe("DashboardService", () => {
@@ -22,7 +32,7 @@ void describe("DashboardService", () => {
 
   beforeEach(() => {
     repo = makeRepoStubs();
-    service = new DashboardService(repo);
+    service = new DashboardService(repo, makeCacheStub());
   });
 
   void describe("getStats()", () => {

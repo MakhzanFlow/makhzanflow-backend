@@ -4,6 +4,9 @@ import { generateAccessToken, generateRefreshToken } from '../../shared/utils/jw
 import { AppError } from '../../shared/errors/app-error.js';
 import type { IEmailService } from '../../types/email-service.js';
 import type { UserResponse, LoginResponse, VerifyEmailResponse } from './auth.dto.js';
+import type { ICacheService } from '../../shared/cache/cache.interface.js';
+import { CacheKeys } from '../../shared/cache/cache-keys.js';
+import { CACHE_TTL } from '../../shared/cache/constants.js';
 
 export class AuthService {
   private generateOtp(): string {
@@ -13,7 +16,8 @@ export class AuthService {
     private userRepository: UserRepository,
     private verificationTokenRepo: VerificationTokenRepository,
     private refreshTokenRepo: RefreshTokenRepository,
-    private emailService: IEmailService
+    private emailService: IEmailService,
+    private cache: ICacheService
   ) {}
 
   private toUserResponse(user: { id: string; name: string; email: string; is_verified: boolean; verified_at: Date | null; created_at: Date | null; updated_at: Date | null }): UserResponse {
@@ -52,6 +56,8 @@ export class AuthService {
     });
 
     await this.emailService.sendVerificationEmail(user.email, user.name, token);
+
+    await this.cache.set(CacheKeys.auth.profile(user.id), this.toUserResponse(user), CACHE_TTL.MEDIUM);
 
     return this.toUserResponse(user);
   }
@@ -99,6 +105,8 @@ export class AuthService {
       expires_at: expiresAt,
       users: { connect: { id: user.id } },
     });
+
+    await this.cache.del(CacheKeys.auth.profile(user.id));
 
     return { accessToken, refreshToken, user: this.toUserResponse(updatedUser) };
   }
@@ -198,10 +206,16 @@ export class AuthService {
   }
 
   async getProfile(userId: string): Promise<UserResponse> {
+    const cacheKey = CacheKeys.auth.profile(userId);
+    const cached = await this.cache.get<UserResponse>(cacheKey);
+    if (cached) return cached;
+
     const user = await this.userRepository.findById(userId);
     if (!user) {
       throw new AppError(404, 'User not found', 'errors.userNotFound');
     }
-    return this.toUserResponse(user);
+    const response = this.toUserResponse(user);
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 }

@@ -3,6 +3,7 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert";
 import { CompanyService } from "../../../src/modules/companies/company.service.js";
 import { CompanyRepository } from "../../../src/modules/companies/company.repository.js";
+import type { ICacheService } from "../../../src/shared/cache/cache.interface.js";
 import { PERMISSION_GROUPS } from "../../../src/shared/constants/permissions.js";
 
 function makeRepoStubs(): InstanceType<typeof CompanyRepository> {
@@ -15,6 +16,15 @@ function makeRepoStubs(): InstanceType<typeof CompanyRepository> {
   return repo;
 }
 
+function makeCacheStub(): ICacheService {
+  return {
+    get: async () => null,
+    set: async () => {},
+    del: async () => {},
+    delPattern: async () => {},
+  };
+}
+
 const companyId = "company-uuid";
 
 void describe("CompanyService", () => {
@@ -23,7 +33,7 @@ void describe("CompanyService", () => {
 
   beforeEach(() => {
     repo = makeRepoStubs();
-    service = new CompanyService(repo);
+    service = new CompanyService(repo, makeCacheStub());
   });
 
   void describe("getPermissionCatalog()", () => {

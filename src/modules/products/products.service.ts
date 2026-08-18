@@ -11,12 +11,18 @@ import { Prisma } from "../../../generated/prisma/client.js";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/client.js";
 import type { ProductResponse } from './products.dto.js';
 import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
+import { CacheService } from '../../shared/cache/cache.service.js';
+import { CacheKeys } from '../../shared/cache/cache-keys.js';
+import { hashQuery } from '../../shared/cache/hash.js';
+import { CACHE_TTL } from '../../shared/cache/constants.js';
+import type { ICacheService } from '../../shared/cache/cache.interface.js';
 
 @injectable()
 export class ProductService {
   constructor(
     @inject(ProductRepository) private productRepository: ProductRepository,
-    @inject(ActivityLogService) private activityLogService: ActivityLogService
+    @inject(ActivityLogService) private activityLogService: ActivityLogService,
+    @inject(CacheService) private cache: ICacheService
   ) {}
 
   private toProductResponse(product: any): ProductResponse {
@@ -60,20 +66,39 @@ export class ProductService {
       action: "create",
     });
 
+    await this.cache.delPattern(CacheKeys.products.list(data.company_id, "*"));
+    await this.cache.del(CacheKeys.dashboard.stats(data.company_id));
+    await this.cache.delPattern(CacheKeys.dashboard.lowStock(data.company_id, "*"));
+
     return this.toProductResponse(product);
   }
 
   async findById(id: string, companyId: string): Promise<ProductResponse> {
+    const cacheKey = CacheKeys.products.detail(id, companyId);
+    const cached = await this.cache.get<ProductResponse>(cacheKey);
+    if (cached) return cached;
+
     const product = await this.productRepository.findById(id, companyId);
     if (!product) {
       throw new AppError(404, "Product not found", "errors.productNotFound");
     }
-    return this.toProductResponse(product);
+    const response = this.toProductResponse(product);
+    await this.cache.set(cacheKey, response, CACHE_TTL.LONG);
+    return response;
   }
 
   async list(params: ListProductParams): Promise<PaginatedResponse<ProductResponse>> {
     const { companyId, page, limit, search, sort, order, low_stock, expiry_before, expiry_after, is_active } = params;
     const skip = (page - 1) * limit;
+
+    const cacheKey = low_stock === true
+      ? CacheKeys.products.lowStock(companyId, hashQuery({ page, limit, search, sort, order, expiry_before, expiry_after, is_active }))
+      : CacheKeys.products.list(companyId, hashQuery({ page, limit, search, sort, order, expiry_before, expiry_after, is_active }));
+
+    const cached = await this.cache.get<PaginatedResponse<ProductResponse>>(cacheKey);
+    if (cached) return cached;
+
+    let result: PaginatedResponse<ProductResponse>;
 
     if (low_stock === true) {
       const filters = {
@@ -91,49 +116,52 @@ export class ProductService {
         this.productRepository.findLowStock(filters),
         this.productRepository.countLowStock(filters),
       ]);
-      return {
+      result = {
         data: products.map((p) => this.toProductResponse(p)),
         pagination: { page, limit, total, pages: Math.ceil(total / limit) },
       };
+    } else {
+      const where: Prisma.productsWhereInput = { company_id: companyId };
+
+      if (search) {
+        where.OR = [
+          { name: { contains: search, mode: "insensitive" } },
+          { sku: { contains: search, mode: "insensitive" } },
+          { barcode: { contains: search, mode: "insensitive" } },
+        ];
+      }
+
+      if (expiry_before) {
+        where.expiry_date = { ...(where.expiry_date as object || {}), lte: new Date(expiry_before) };
+      }
+
+      if (expiry_after) {
+        where.expiry_date = { ...(where.expiry_date as object || {}), gte: new Date(expiry_after) };
+      }
+
+      if (is_active !== undefined) {
+        where.is_active = is_active;
+      }
+
+      const orderBy = { [sort ?? "name"]: order ?? "asc" } as Prisma.productsOrderByWithRelationInput;
+      const [products, total] = await Promise.all([
+        this.productRepository.findAll(where, skip, limit, orderBy),
+        this.productRepository.countAll(where),
+      ]);
+
+      result = {
+        data: products.map((p) => this.toProductResponse(p)),
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      };
     }
 
-    const where: Prisma.productsWhereInput = { company_id: companyId };
-
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { sku: { contains: search, mode: "insensitive" } },
-        { barcode: { contains: search, mode: "insensitive" } },
-      ];
-    }
-
-    if (expiry_before) {
-      where.expiry_date = { ...(where.expiry_date as object || {}), lte: new Date(expiry_before) };
-    }
-
-    if (expiry_after) {
-      where.expiry_date = { ...(where.expiry_date as object || {}), gte: new Date(expiry_after) };
-    }
-
-    if (is_active !== undefined) {
-      where.is_active = is_active;
-    }
-
-    const orderBy = { [sort ?? "name"]: order ?? "asc" } as Prisma.productsOrderByWithRelationInput;
-    const [products, total] = await Promise.all([
-      this.productRepository.findAll(where, skip, limit, orderBy),
-      this.productRepository.countAll(where),
-    ]);
-
-    return {
-      data: products.map((p) => this.toProductResponse(p)),
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
-    };
+    await this.cache.set(cacheKey, result, CACHE_TTL.MEDIUM);
+    return result;
   }
 
   async update(id: string, companyId: string, data: UpdateProductInput, userId: string): Promise<ProductResponse> {
@@ -166,6 +194,12 @@ export class ProductService {
       changes: { old: existing, new: product } as any,
     });
 
+    await this.cache.del(CacheKeys.products.detail(id, companyId));
+    await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.products.lowStock(companyId, "*"));
+    await this.cache.del(CacheKeys.dashboard.stats(companyId));
+    await this.cache.delPattern(CacheKeys.dashboard.lowStock(companyId, "*"));
+
     return this.toProductResponse(product);
   }
 
@@ -193,6 +227,12 @@ export class ProductService {
       entity_id: id,
       action: "delete",
     });
+
+    await this.cache.del(CacheKeys.products.detail(id, companyId));
+    await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.products.lowStock(companyId, "*"));
+    await this.cache.del(CacheKeys.dashboard.stats(companyId));
+    await this.cache.delPattern(CacheKeys.dashboard.lowStock(companyId, "*"));
   }
 
   private async generateSku(companyId: string): Promise<string> {
@@ -241,6 +281,9 @@ export class ProductService {
       action: "update",
       changes: { old: { image_url: existing.image_url }, new: { image_url: imageUrl } },
     });
+
+    await this.cache.del(CacheKeys.products.detail(id, companyId));
+    await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
 
     return this.toProductResponse(product);
   }

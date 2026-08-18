@@ -10,13 +10,19 @@ import type {
   InvoiceListItemResponse,
 } from './invoices.dto.js';
 import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
+import { CacheService } from '../../shared/cache/cache.service.js';
+import { CacheKeys } from '../../shared/cache/cache-keys.js';
+import { hashQuery } from '../../shared/cache/hash.js';
+import { CACHE_TTL } from '../../shared/cache/constants.js';
+import type { ICacheService } from '../../shared/cache/cache.interface.js';
 
 @injectable()
 export class InvoiceService {
   constructor(
     @inject(InvoiceRepository) private invoiceRepository: InvoiceRepository,
     @inject(CustomerRepository) private customerRepository: CustomerRepository,
-    @inject(ActivityLogService) private activityLogService: ActivityLogService
+    @inject(ActivityLogService) private activityLogService: ActivityLogService,
+    @inject(CacheService) private cache: ICacheService
   ) {}
 
   private toInvoiceResponse(invoice: any): InvoiceResponse {
@@ -110,20 +116,33 @@ export class InvoiceService {
     if (!full) {
       throw new AppError(404, "Invoice not found", "errors.invoiceNotFound");
     }
+
+    await this.invalidateInvoiceCaches(data.company_id, data.customer_id ?? undefined);
+
     return this.toInvoiceResponse(full);
   }
 
   async findById(id: string, companyId: string): Promise<InvoiceResponse> {
+    const cacheKey = CacheKeys.invoices.detail(id, companyId);
+    const cached = await this.cache.get<InvoiceResponse>(cacheKey);
+    if (cached) return cached;
+
     const invoice = await this.invoiceRepository.findById(id, companyId);
     if (!invoice) {
       throw new AppError(404, "Invoice not found", "errors.invoiceNotFound");
     }
-    return this.toInvoiceResponse(invoice);
+    const response = this.toInvoiceResponse(invoice);
+    await this.cache.set(cacheKey, response, CACHE_TTL.LONG);
+    return response;
   }
 
   async list(params: ListInvoicesParams): Promise<PaginatedResponse<InvoiceListItemResponse>> {
     const { companyId, page, limit, search, status, customer_id, start_date, end_date, sort, order } = params;
     const skip = (page - 1) * limit;
+
+    const cacheKey = CacheKeys.invoices.list(companyId, hashQuery({ page, limit, search, status, customer_id, start_date, end_date, sort, order }));
+    const cached = await this.cache.get<PaginatedResponse<InvoiceListItemResponse>>(cacheKey);
+    if (cached) return cached;
 
     const where: Prisma.invoicesWhereInput = { company_id: companyId };
 
@@ -152,7 +171,7 @@ export class InvoiceService {
       this.invoiceRepository.count(where),
     ]);
 
-    return {
+    const response: PaginatedResponse<InvoiceListItemResponse> = {
       data: invoices.map((inv) => this.toInvoiceListItemResponse(inv)),
       pagination: {
         page,
@@ -161,6 +180,9 @@ export class InvoiceService {
         pages: Math.ceil(total / limit),
       },
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async addPayment(invoiceId: string, companyId: string, input: AddInvoicePaymentInput, userId: string): Promise<InvoiceResponse> {
@@ -174,6 +196,14 @@ export class InvoiceService {
       action: "update",
       changes: { action: "payment_added", amount: input.amount },
     });
+
+    await this.cache.del(CacheKeys.invoices.detail(invoiceId, companyId));
+    await this.cache.delPattern(CacheKeys.invoices.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.customers.list(companyId, "*"));
+    await this.cache.del(CacheKeys.customers.summary(companyId));
+    await this.cache.delPattern(CacheKeys.customers.debtors(companyId, "*"));
+    await this.cache.del(CacheKeys.dashboard.stats(companyId));
+    await this.cache.delPattern(CacheKeys.dashboard.monthlyReport(companyId, "*"));
 
     return this.toInvoiceResponse(invoice);
   }
@@ -190,6 +220,32 @@ export class InvoiceService {
       changes: { status: "canceled" },
     });
 
+    await this.cache.del(CacheKeys.invoices.detail(invoiceId, companyId));
+    await this.cache.delPattern(CacheKeys.invoices.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.products.lowStock(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.customers.list(companyId, "*"));
+    await this.cache.del(CacheKeys.customers.summary(companyId));
+    await this.cache.delPattern(CacheKeys.customers.debtors(companyId, "*"));
+    await this.cache.del(CacheKeys.dashboard.stats(companyId));
+    await this.cache.delPattern(CacheKeys.dashboard.lowStock(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.dashboard.monthlyReport(companyId, "*"));
+
     return this.toInvoiceResponse(invoice);
+  }
+
+  private async invalidateInvoiceCaches(companyId: string, customerId?: string): Promise<void> {
+    await this.cache.delPattern(CacheKeys.invoices.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.products.lowStock(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.customers.list(companyId, "*"));
+    await this.cache.del(CacheKeys.customers.summary(companyId));
+    await this.cache.delPattern(CacheKeys.customers.debtors(companyId, "*"));
+    await this.cache.del(CacheKeys.dashboard.stats(companyId));
+    await this.cache.delPattern(CacheKeys.dashboard.lowStock(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.dashboard.monthlyReport(companyId, "*"));
+    if (customerId) {
+      await this.cache.del(CacheKeys.customers.debt(customerId, companyId));
+    }
   }
 }

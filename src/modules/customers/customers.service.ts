@@ -18,10 +18,18 @@ import type {
   CustomerDebtResponse,
 } from './customers.dto.js';
 import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
+import { CacheService } from '../../shared/cache/cache.service.js';
+import { CacheKeys } from '../../shared/cache/cache-keys.js';
+import { hashQuery } from '../../shared/cache/hash.js';
+import { CACHE_TTL } from '../../shared/cache/constants.js';
+import type { ICacheService } from '../../shared/cache/cache.interface.js';
 
 @injectable()
 export class CustomerService {
-  constructor(@inject(CustomerRepository) private customerRepository: CustomerRepository) {}
+  constructor(
+    @inject(CustomerRepository) private customerRepository: CustomerRepository,
+    @inject(CacheService) private cache: ICacheService
+  ) {}
 
   private generateInvoiceNumber(companyId: string, lastNumber: string | null): string {
     const today = new Date();
@@ -81,6 +89,9 @@ export class CustomerService {
         }
       );
 
+      await this.invalidateCustomerCaches(data.company_id);
+      await this.cache.delPattern(CacheKeys.dashboard.monthlyReport(data.company_id, "*"));
+
       return {
         ...this.toCustomerResponse(customer, Number(invoice.total_amount)),
         opening_balance_invoice: {
@@ -94,10 +105,16 @@ export class CustomerService {
 
     const customer = await this.customerRepository.create(customerData);
 
+    await this.invalidateCustomerCaches(data.company_id);
+
     return this.toCustomerResponse(customer, 0);
   }
 
   async findById(id: string, companyId: string): Promise<CustomerDetailResponse> {
+    const cacheKey = CacheKeys.customers.detail(id, companyId);
+    const cached = await this.cache.get<CustomerDetailResponse>(cacheKey);
+    if (cached) return cached;
+
     const customer = await this.customerRepository.findById(id, companyId);
     if (!customer) {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
@@ -105,7 +122,7 @@ export class CustomerService {
 
     const debt = this.calculateDebt(customer);
 
-    return {
+    const response: CustomerDetailResponse = {
       id: customer.id,
       name: customer.name,
       phone: customer.phone,
@@ -128,11 +145,18 @@ export class CustomerService {
         created_at: inv.created_at,
       })),
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.LONG);
+    return response;
   }
 
   async list(params: ListCustomerParams): Promise<PaginatedResponse<CustomerResponse>> {
     const { companyId, page, limit, search, sort, order, debt_status } = params;
     const skip = (page - 1) * limit;
+
+    const cacheKey = CacheKeys.customers.list(companyId, hashQuery({ page, limit, search, sort, order, debt_status }));
+    const cached = await this.cache.get<PaginatedResponse<CustomerResponse>>(cacheKey);
+    if (cached) return cached;
 
     let customers;
     let total;
@@ -173,7 +197,7 @@ export class CustomerService {
       });
     }
 
-    return {
+    const response: PaginatedResponse<CustomerResponse> = {
       data: result,
       pagination: {
         page,
@@ -182,6 +206,9 @@ export class CustomerService {
         pages: Math.ceil(total / limit),
       },
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async update(id: string, companyId: string, data: UpdateCustomerInput, imageUrl?: string): Promise<CustomerResponse> {
@@ -205,6 +232,9 @@ export class CustomerService {
 
     const debt = this.calculateDebt(customer);
 
+    await this.cache.del(CacheKeys.customers.detail(id, companyId));
+    await this.invalidateCustomerCaches(companyId);
+
     return this.toCustomerResponse(customer, debt);
   }
 
@@ -224,9 +254,16 @@ export class CustomerService {
     }
 
     await this.customerRepository.delete(id);
+
+    await this.cache.del(CacheKeys.customers.detail(id, companyId));
+    await this.invalidateCustomerCaches(companyId);
   }
 
   async getDebt(id: string, companyId: string): Promise<CustomerDebtResponse> {
+    const cacheKey = CacheKeys.customers.debt(id, companyId);
+    const cached = await this.cache.get<CustomerDebtResponse>(cacheKey);
+    if (cached) return cached;
+
     const customer = await this.customerRepository.findByIdWithInvoices(id, companyId);
     if (!customer) {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
@@ -258,7 +295,7 @@ export class CustomerService {
 
     const recentPayments = await this.customerRepository.findRecentPayments(id, companyId, 10);
 
-    return {
+    const response: CustomerDebtResponse = {
       customer_id: customer.id,
       customer_name: customer.name,
       opening_balance: openingBalance,
@@ -277,6 +314,9 @@ export class CustomerService {
         created_at: p.created_at,
       })),
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async getInvoices(id: string, companyId: string, page: number, limit: number): Promise<PaginatedResponse<CustomerInvoiceItem>> {
@@ -286,9 +326,13 @@ export class CustomerService {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
     }
 
+    const cacheKey = CacheKeys.customers.invoices(id, companyId, hashQuery({ page, limit }));
+    const cached = await this.cache.get<PaginatedResponse<CustomerInvoiceItem>>(cacheKey);
+    if (cached) return cached;
+
     const [invoices, total] = await this.customerRepository.findPaginatedInvoices(id, companyId, skip, limit);
 
-    return {
+    const response: PaginatedResponse<CustomerInvoiceItem> = {
       data: invoices.map((inv) => ({
         id: inv.id,
         invoice_number: inv.invoice_number,
@@ -306,6 +350,9 @@ export class CustomerService {
         pages: Math.ceil(total / limit),
       },
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async getPayments(id: string, companyId: string, page: number, limit: number): Promise<PaginatedResponse<CustomerPaymentItem>> {
@@ -315,9 +362,13 @@ export class CustomerService {
       throw new AppError(404, 'Customer not found', 'errors.customerNotFound');
     }
 
+    const cacheKey = CacheKeys.customers.payments(id, companyId, hashQuery({ page, limit }));
+    const cached = await this.cache.get<PaginatedResponse<CustomerPaymentItem>>(cacheKey);
+    if (cached) return cached;
+
     const [payments, total] = await this.customerRepository.findPaginatedPayments(id, companyId, skip, limit);
 
-    return {
+    const response: PaginatedResponse<CustomerPaymentItem> = {
       data: payments.map((p) => ({
         id: p.id,
         invoice_id: p.invoice_id,
@@ -335,9 +386,16 @@ export class CustomerService {
         pages: Math.ceil(total / limit),
       },
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async getSummary(companyId: string): Promise<CustomerSummaryResponse> {
+    const cacheKey = CacheKeys.customers.summary(companyId);
+    const cached = await this.cache.get<CustomerSummaryResponse>(cacheKey);
+    if (cached) return cached;
+
     const customers = await this.customerRepository.findAllWithInvoices(companyId);
 
     let withDebt = 0;
@@ -351,17 +409,24 @@ export class CustomerService {
       else creditBalance++;
     }
 
-    return {
+    const response: CustomerSummaryResponse = {
       total: customers.length,
       with_debt: withDebt,
       zero_debt: zeroDebt,
       credit_balance: creditBalance,
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.SHORT);
+    return response;
   }
 
   async getDebtors(params: DebtorsParams): Promise<PaginatedResponse<CustomerDebtorItem>> {
     const { companyId, page, limit, search } = params;
     const skip = (page - 1) * limit;
+
+    const cacheKey = CacheKeys.customers.debtors(companyId, hashQuery({ page, limit, search }));
+    const cached = await this.cache.get<PaginatedResponse<CustomerDebtorItem>>(cacheKey);
+    if (cached) return cached;
 
     const allCustomers = await this.customerRepository.findAllWithInvoices(companyId);
 
@@ -385,7 +450,7 @@ export class CustomerService {
     const total = withDebt.length;
     const data = withDebt.slice(skip, skip + limit);
 
-    return {
+    const response: PaginatedResponse<CustomerDebtorItem> = {
       data,
       pagination: {
         page,
@@ -394,6 +459,9 @@ export class CustomerService {
         pages: Math.ceil(total / limit),
       },
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async uploadImage(id: string, companyId: string, imageUrl: string): Promise<{ image_url: string | null }> {
@@ -403,7 +471,18 @@ export class CustomerService {
     }
 
     const customer = await this.customerRepository.updateImage(id, companyId, imageUrl);
+
+    await this.cache.del(CacheKeys.customers.detail(id, companyId));
+    await this.cache.delPattern(CacheKeys.customers.list(companyId, "*"));
+
     return { image_url: customer.image_url };
+  }
+
+  private async invalidateCustomerCaches(companyId: string): Promise<void> {
+    await this.cache.delPattern(CacheKeys.customers.list(companyId, "*"));
+    await this.cache.del(CacheKeys.customers.summary(companyId));
+    await this.cache.delPattern(CacheKeys.customers.debtors(companyId, "*"));
+    await this.cache.del(CacheKeys.dashboard.stats(companyId));
   }
 
   private calculateDebt(customer: {

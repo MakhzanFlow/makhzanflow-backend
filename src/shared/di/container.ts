@@ -16,6 +16,9 @@ import { DashboardController } from "../../modules/dashboard/dashboard.controlle
 import { CompanyRepository } from "../../modules/companies/company.repository.js";
 import { CompanyService } from "../../modules/companies/company.service.js";
 import { CompanyController } from "../../modules/companies/company.controller.js";
+import type { ICacheService } from "../cache/cache.interface.js";
+import { CacheService } from "../cache/cache.service.js";
+import { redis } from "../../config/redis.js";
 
 container.registerSingleton(ProductRepository);
 container.registerSingleton(ActivityLogRepository);
@@ -34,3 +37,5 @@ container.registerSingleton(DashboardController);
 container.registerSingleton(CompanyRepository);
 container.registerSingleton(CompanyService);
 container.registerSingleton(CompanyController);
+
+container.registerInstance<ICacheService>(CacheService, new CacheService(redis));

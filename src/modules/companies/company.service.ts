@@ -22,10 +22,18 @@ import type {
   MemberPermissionsResponse,
 } from './company.dto.js';
 import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
+import { CacheService } from '../../shared/cache/cache.service.js';
+import { CacheKeys } from '../../shared/cache/cache-keys.js';
+import { hashQuery } from '../../shared/cache/hash.js';
+import { CACHE_TTL } from '../../shared/cache/constants.js';
+import type { ICacheService } from '../../shared/cache/cache.interface.js';
 
 @injectable()
 export class CompanyService {
-  constructor(@inject(CompanyRepository) private companyRepository: CompanyRepository) {}
+  constructor(
+    @inject(CompanyRepository) private companyRepository: CompanyRepository,
+    @inject(CacheService) private cache: ICacheService
+  ) {}
 
   private async resolveLogoUrl(logoUrl?: string | null): Promise<string | null> {
     if (!logoUrl) return null;
@@ -107,27 +115,45 @@ export class CompanyService {
       ownerUserId
     );
 
+    await this.cache.del(CacheKeys.companies.user(ownerUserId));
+
     return this.toCompanyResponse(company);
   }
 
   async getCompanyDetails(companyId: string, userId: string): Promise<CompanyWithSubscription> {
     const membership = await this.requireMember(companyId, userId);
 
+    const cacheKey = CacheKeys.companies.detail(companyId);
+    const cached = await this.cache.get<CompanyWithSubscription>(cacheKey);
+    if (cached) {
+      const isAdminOrOwner = membership.role === member_role.owner || membership.role === member_role.admin;
+      return {
+        ...cached,
+        invite_code: isAdminOrOwner ? cached.invite_code : null,
+      };
+    }
+
     const company = await this.companyRepository.findById(companyId);
     if (!company) {
       throw new AppError(404, 'Company not found', 'errors.companyNotFound');
     }
 
-    const isAdminOrOwner = membership.role === member_role.owner || membership.role === member_role.admin;
-
-    return {
+    const response: CompanyWithSubscription = {
       id: company.id,
       name: company.name,
       logo_url: company.logo_url,
-      invite_code: isAdminOrOwner ? company.invite_code : null,
+      invite_code: company.invite_code,
       created_at: company.created_at,
       updated_at: company.updated_at,
       company_subscriptions: (company.company_subscriptions ?? []) as any,
+    };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+
+    const isAdminOrOwner = membership.role === member_role.owner || membership.role === member_role.admin;
+    return {
+      ...response,
+      invite_code: isAdminOrOwner ? response.invite_code : null,
     };
   }
 
@@ -141,6 +167,8 @@ export class CompanyService {
       ...(logo_url !== undefined && { logo_url: await this.resolveLogoUrl(logo_url) }),
     });
 
+    await this.cache.del(CacheKeys.companies.detail(companyId));
+
     return this.toCompanyResponse(company);
   }
 
@@ -148,17 +176,28 @@ export class CompanyService {
     await this.requireOwner(companyId, userId);
 
     const company = await this.companyRepository.delete(companyId);
+
+    await this.cache.delPattern(`*:${companyId}:*`);
+    await this.cache.delPattern(`companies:*:${companyId}*`);
+
     return this.toCompanyResponse(company);
   }
 
   async listMembers(companyId: string, userId: string, pagination: { page?: number; limit?: number }): Promise<PaginatedResponse<CompanyMemberResponse>> {
     await this.requireMember(companyId, userId);
 
+    const cacheKey = CacheKeys.companies.members(companyId, hashQuery(pagination));
+    const cached = await this.cache.get<PaginatedResponse<CompanyMemberResponse>>(cacheKey);
+    if (cached) return cached;
+
     const result = await this.companyRepository.findMembers(companyId, pagination);
-    return {
+    const response: PaginatedResponse<CompanyMemberResponse> = {
       data: result.data as any,
       pagination: result.pagination,
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async addMember(
@@ -177,6 +216,12 @@ export class CompanyService {
 
     const permObject = Array.isArray(permissions) ? buildPermissionObject(permissions) : permissions;
     const member = await this.companyRepository.addMember(companyId, targetUserId, role, permObject);
+
+    await this.cache.del(CacheKeys.companies.detail(companyId));
+    await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
+    await this.cache.del(CacheKeys.companies.user(targetUserId));
+    await this.cache.del(CacheKeys.companies.permissions(companyId, targetUserId));
+
     return member as any;
   }
 
@@ -197,6 +242,11 @@ export class CompanyService {
     }
 
     const removed = await this.companyRepository.removeMember(companyId, targetUserId);
+
+    await this.cache.del(CacheKeys.companies.detail(companyId));
+    await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
+    await this.cache.del(CacheKeys.companies.user(targetUserId));
+
     return removed as any;
   }
 
@@ -231,12 +281,21 @@ export class CompanyService {
       updateData.permissions = buildPermissionObject(updateData.permissions);
     }
     const updated = await this.companyRepository.updateMember(companyId, targetUserId, updateData);
+
+    await this.cache.del(CacheKeys.companies.detail(companyId));
+    await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
+    await this.cache.del(CacheKeys.companies.permissions(companyId, targetUserId));
+
     return updated as any;
   }
 
   async getUserCompanies(userId: string): Promise<UserCompanyResponse[]> {
+    const cacheKey = CacheKeys.companies.user(userId);
+    const cached = await this.cache.get<UserCompanyResponse[]>(cacheKey);
+    if (cached) return cached;
+
     const companies = await this.companyRepository.findCompaniesByUserId(userId);
-    return companies.map((company) => {
+    const response = companies.map((company) => {
       const member = company.company_members?.[0];
       const isAdminOrOwner = member?.role === member_role.owner || member?.role === member_role.admin;
       return {
@@ -249,6 +308,9 @@ export class CompanyService {
         company_members: company.company_members ?? [],
       } as UserCompanyResponse;
     });
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   /**
@@ -285,6 +347,10 @@ export class CompanyService {
       throw new AppError(403, 'Only owners and admins can view other members\' permissions', 'errors.unauthorized');
     }
 
+    const cacheKey = CacheKeys.companies.permissions(companyId, targetUserId);
+    const cached = await this.cache.get<MemberPermissionsResponse>(cacheKey);
+    if (cached) return cached;
+
     const target = await this.companyRepository.findMember(companyId, targetUserId);
     if (!target) {
       throw new AppError(404, 'Member not found in this company', 'errors.memberNotFound');
@@ -293,18 +359,27 @@ export class CompanyService {
     const ownerOrAdmin =
       target.role === member_role.owner || target.role === member_role.admin;
 
-    return {
+    const response: MemberPermissionsResponse = {
       role: target.role,
       permissions: ownerOrAdmin
         ? allPermissionKeys()
         : flattenPermissions((target.permissions as Record<string, any>) ?? {}),
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async lookupCompany(code: string): Promise<{ id: string; name: string; logo_url: string | null } | null> {
+    const cacheKey = CacheKeys.companies.lookup(code);
+    const cached = await this.cache.get<{ id: string; name: string; logo_url: string | null }>(cacheKey);
+    if (cached) return cached;
+
     const byCode = await this.companyRepository.findByInviteCode(code);
     if (byCode) {
-      return { id: byCode.id, name: byCode.name, logo_url: byCode.logo_url };
+      const response = { id: byCode.id, name: byCode.name, logo_url: byCode.logo_url };
+      await this.cache.set(cacheKey, response, CACHE_TTL.LONG);
+      return response;
     }
     return null;
   }
@@ -334,16 +409,27 @@ export class CompanyService {
         throw new AppError(429, 'You must wait 5 minutes before requesting again', 'errors.tooSoon');
       }
       await this.companyRepository.resetJoinRequest(existingRequest.id);
+      await this.cache.del(CacheKeys.companies.userJoinRequests(userId));
       return { company_id: existingRequest.company_id, status: 'pending' };
     }
 
     const request = await this.companyRepository.createJoinRequest(company.id, userId);
+
+    await this.cache.del(CacheKeys.companies.userJoinRequests(userId));
+
     return { company_id: request.company_id, status: request.status };
   }
 
   async listJoinRequests(operatorUserId: string, companyId: string) {
     await this.requireOwnerOrAdmin(companyId, operatorUserId);
-    return this.companyRepository.listPendingJoinRequests(companyId);
+
+    const cacheKey = CacheKeys.companies.joinRequests(companyId);
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.companyRepository.listPendingJoinRequests(companyId);
+    await this.cache.set(cacheKey, result, CACHE_TTL.SHORT);
+    return result;
   }
 
   async approveJoinRequest(operatorUserId: string, companyId: string, requestId: string) {
@@ -358,6 +444,12 @@ export class CompanyService {
     }
 
     await this.companyRepository.approveJoinRequest(requestId, companyId, request.user_id);
+
+    await this.cache.del(CacheKeys.companies.detail(companyId));
+    await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
+    await this.cache.del(CacheKeys.companies.joinRequests(companyId));
+    await this.cache.del(CacheKeys.companies.user(request.user_id));
+
     return { success: true };
   }
 
@@ -373,6 +465,10 @@ export class CompanyService {
     }
 
     await this.companyRepository.rejectJoinRequest(requestId);
+
+    await this.cache.del(CacheKeys.companies.joinRequests(companyId));
+    await this.cache.del(CacheKeys.companies.userJoinRequests(request.user_id));
+
     return { success: true };
   }
 
@@ -381,10 +477,19 @@ export class CompanyService {
 
     const newCode = await this.generateInviteCode();
     await this.companyRepository.updateInviteCode(companyId, newCode);
+
+    await this.cache.del(CacheKeys.companies.detail(companyId));
+
     return { invite_code: newCode };
   }
 
   async getMyJoinRequests(userId: string) {
-    return this.companyRepository.findJoinRequestsByUser(userId);
+    const cacheKey = CacheKeys.companies.userJoinRequests(userId);
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.companyRepository.findJoinRequestsByUser(userId);
+    await this.cache.set(cacheKey, result, CACHE_TTL.SHORT);
+    return result;
   }
 }

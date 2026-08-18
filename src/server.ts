@@ -27,4 +27,9 @@ async function bootstrap() {
   });
 }
 
-bootstrap();
+// Vercel serverless imports the app directly (see api/index.ts) and
+// never runs this bootstrap. Traditional servers (local dev, VPS)
+// start the HTTP listener here.
+if (env.NODE_ENV !== "production" || process.env["VERCEL"] !== "1") {
+  bootstrap();
+}
