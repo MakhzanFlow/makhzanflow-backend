@@ -104,6 +104,14 @@ export class CompanyService {
 
     const existing = await this.companyRepository.findByName(data.name);
     if (existing) {
+      const membership = await this.companyRepository.findMember(existing.id, ownerUserId);
+      if (membership) {
+        throw new AppError(
+          409,
+          `You are already inside the company "${existing.name}". Switch to it instead of creating a new one.`,
+          'errors.alreadyInCompany'
+        );
+      }
       throw new AppError(409, 'A company with this name already exists', 'errors.companyExists');
     }
 
