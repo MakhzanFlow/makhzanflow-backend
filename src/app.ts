@@ -60,7 +60,7 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.get("/", (_req, res) => {
+app.get(["/", "/web"], (_req, res) => {
   res.redirect(env.FRONTEND_URL);
 });
 

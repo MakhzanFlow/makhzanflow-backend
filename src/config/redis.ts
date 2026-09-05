@@ -15,10 +15,13 @@ function createUpstashClient(url: string, token: string): UpstashRedis {
   return client;
 }
 
+let localClient: RedisClientType | null = null;
+
 function createLocalClient(): RedisClient {
   const client: RedisClientType = createClient({
     url: `redis://${process.env["REDIS_HOST"] ?? "localhost"}:${parseInt(process.env["REDIS_PORT"] ?? "6379", 10)}`,
   });
+  localClient = client;
   client.on("error", (err) => logger.error("Redis connection error:", err));
   client.connect().catch((err) => logger.error("Redis connect failed:", err));
   logger.info("Redis client initialized (local Docker)");
@@ -87,3 +90,20 @@ const upstashToken = process.env["UPSTASH_REDIS_REST_TOKEN"];
 export const redis: RedisClient = upstashUrl && upstashToken
   ? createUpstashClient(upstashUrl, upstashToken)
   : (process.env["NODE_ENV"] === "production" ? createMemoryClient() : createLocalClient());
+
+/**
+ * Closes the underlying local node-redis connection when one exists.
+ * No-op for Upstash REST and in-memory clients. Intended for test teardown
+ * so an idle reconnect loop never keeps the process alive.
+ */
+export async function disconnectRedis(): Promise<void> {
+  if (localClient) {
+    try {
+      await localClient.quit();
+    } catch {
+      // ignore — shutting down anyway
+    } finally {
+      localClient = null;
+    }
+  }
+}

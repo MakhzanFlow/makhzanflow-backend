@@ -19,6 +19,13 @@ if (upstashUrl && upstashToken) {
 }
 
 export async function upstashRateLimit(req: Request, res: Response, next: NextFunction) {
+  // Test hook: integration/E2E suites set DISABLE_RATE_LIMIT=1 so a single
+  // runner IP is not throttled by the shared 100 req / 15 min window.
+  // Never set in production environments.
+  if (process.env["DISABLE_RATE_LIMIT"] === "1") {
+    next();
+    return;
+  }
   if (!ratelimit) {
     next();
     return;

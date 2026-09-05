@@ -9,7 +9,12 @@
   "redirects": [
     {
       "source": "/",
-      "destination": "https://brand-github-4884dc.vercel.app/",
+      "destination": "https://makhzanflow-web.vercel.app/",
+      "permanent": false
+    },
+    {
+      "source": "/web",
+      "destination": "https://makhzanflow-web.vercel.app/",
       "permanent": false
     }
   ],
