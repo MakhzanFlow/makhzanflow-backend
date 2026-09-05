@@ -128,6 +128,13 @@ export class ProductRepository {
     return prisma.products.delete({ where: { id, company_id: companyId } });
   }
 
+  async softDelete(id: string, companyId: string) {
+    return prisma.products.update({
+      where: { id, company_id: companyId },
+      data: { is_active: false },
+    });
+  }
+
   async findBySku(sku: string, companyId: string) {
     return prisma.products.findFirst({
       where: { sku, company_id: companyId },

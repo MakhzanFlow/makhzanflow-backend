@@ -30,7 +30,6 @@ export const createInvoiceSchema = z.object({
       z.object({
         product_id: z.string().uuid("Invalid product ID"),
         quantity: z.number().int().positive("Quantity must be >= 1"),
-        unit_price: z.number().min(0).optional(),
       })
     ).min(1, "Invoice must contain at least one item"),
     payment: z.object({

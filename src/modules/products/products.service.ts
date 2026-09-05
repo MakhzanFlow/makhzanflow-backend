@@ -9,7 +9,7 @@ import type {
 } from "./products.types.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/client.js";
-import type { ProductResponse } from './products.dto.js';
+import type { ProductResponse, DeleteProductResult } from './products.dto.js';
 import type { PaginatedResponse } from '../../shared/types/shared.dto.js';
 import { CacheService } from '../../shared/cache/cache.service.js';
 import { CacheKeys } from '../../shared/cache/cache-keys.js';
@@ -194,16 +194,12 @@ export class ProductService {
       changes: { old: existing, new: product } as any,
     });
 
-    await this.cache.del(CacheKeys.products.detail(id, companyId));
-    await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
-    await this.cache.delPattern(CacheKeys.products.lowStock(companyId, "*"));
-    await this.cache.del(CacheKeys.dashboard.stats(companyId));
-    await this.cache.delPattern(CacheKeys.dashboard.lowStock(companyId, "*"));
+    await this.invalidateProductCache(id, companyId);
 
     return this.toProductResponse(product);
   }
 
-  async delete(id: string, companyId: string, userId: string): Promise<void> {
+  async delete(id: string, companyId: string, userId: string): Promise<DeleteProductResult> {
     const existing = await this.productRepository.findById(id, companyId);
     if (!existing) {
       throw new AppError(404, "Product not found", "errors.productNotFound");
@@ -211,11 +207,24 @@ export class ProductService {
 
     const refCount = await this.productRepository.countInvoiceReferences(id);
     if (refCount > 0) {
-      throw new AppError(
-        400,
-        "Cannot delete product that is referenced in invoices",
-        "errors.productHasInvoiceReferences"
-      );
+      if (existing.is_active === false) {
+        return { softDeleted: true, product: this.toProductResponse(existing) };
+      }
+
+      const deactivated = await this.productRepository.softDelete(id, companyId);
+
+      await this.activityLogService.log({
+        company_id: companyId,
+        user_id: userId,
+        entity: "product",
+        entity_id: id,
+        action: "delete",
+        changes: { softDeleted: true } as any,
+      });
+
+      await this.invalidateProductCache(id, companyId);
+
+      return { softDeleted: true, product: this.toProductResponse(deactivated) };
     }
 
     await this.productRepository.delete(id, companyId);
@@ -228,11 +237,28 @@ export class ProductService {
       action: "delete",
     });
 
+    await this.invalidateProductCache(id, companyId);
+
+    return { softDeleted: false };
+  }
+
+  /**
+   * Clears every company-scoped cache entry that can hold this product's
+   * data or be affected by its change/removal. Called after update,
+   * soft-delete, hard-delete and image upload (all of which change what
+   * product/invoice/dashboard reads must return).
+   */
+  private async invalidateProductCache(id: string, companyId: string): Promise<void> {
     await this.cache.del(CacheKeys.products.detail(id, companyId));
     await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
     await this.cache.delPattern(CacheKeys.products.lowStock(companyId, "*"));
+    // Invoice payloads embed product snapshots (name/price/image_url).
+    await this.cache.delPattern(CacheKeys.invoices.list(companyId, "*"));
+    await this.cache.delPattern(CacheKeys.invoices.detailForCompany(companyId));
     await this.cache.del(CacheKeys.dashboard.stats(companyId));
     await this.cache.delPattern(CacheKeys.dashboard.lowStock(companyId, "*"));
+    // The mutation writes an activity-log entry, so cached activity pages are stale.
+    await this.cache.delPattern(CacheKeys.dashboard.activity(companyId, "*"));
   }
 
   private async generateSku(companyId: string): Promise<string> {
@@ -282,8 +308,7 @@ export class ProductService {
       changes: { old: { image_url: existing.image_url }, new: { image_url: imageUrl } },
     });
 
-    await this.cache.del(CacheKeys.products.detail(id, companyId));
-    await this.cache.delPattern(CacheKeys.products.list(companyId, "*"));
+    await this.invalidateProductCache(id, companyId);
 
     return this.toProductResponse(product);
   }

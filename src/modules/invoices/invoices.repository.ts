@@ -107,7 +107,7 @@ export class InvoiceRepository {
           throw new AppError(400, `Insufficient stock for product ${product.name}`, "errors.insufficientStock");
         }
 
-        const unitPrice = item.unit_price !== undefined ? item.unit_price : Number(product.price);
+        const unitPrice = Number(product.price);
         const itemTotal = item.quantity * unitPrice;
         subtotal += itemTotal;
 

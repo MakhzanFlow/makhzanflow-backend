@@ -5,10 +5,12 @@ const enProducts = {
   created: "Product created successfully",
   updated: "Product updated successfully",
   deleted: "Product deleted successfully",
+  deactivated: "Product deactivated successfully (has invoice references)",
   imageUploaded: "Image uploaded successfully",
   errors: {
     productNotFound: "Product not found",
     productHasInvoiceReferences: "Cannot delete product that is referenced in invoices",
+    productInactive: "Product is inactive and cannot be added to invoices",
     productSkuExists: "A product with this SKU already exists",
     productBarcodeExists: "A product with this barcode already exists",
     productDuplicate: "A product with these details already exists",
@@ -20,10 +22,12 @@ const arProducts = {
   created: "تم إنشاء المنتج بنجاح",
   updated: "تم تحديث المنتج بنجاح",
   deleted: "تم حذف المنتج بنجاح",
+  deactivated: "تم إلغاء تنشيط المنتج بنجاح (مرتبط بفواتير)",
   imageUploaded: "تم رفع الصورة بنجاح",
   errors: {
     productNotFound: "المنتج غير موجود",
     productHasInvoiceReferences: "لا يمكن حذف منتج مرتبط بالفواتير",
+    productInactive: "المنتج غير نشط ولا يمكن إضافته إلى الفواتير",
     productSkuExists: "يوجد منتج بنفس رمز SKU",
     productBarcodeExists: "يوجد منتج بنفس الباركود",
     productDuplicate: "يوجد منتج بنفس البيانات",
@@ -63,6 +67,9 @@ const enAuth = {
     invoiceAlreadyPaid: "Invoice is already fully paid",
     paymentExceedsTotal: "Payment amount cannot exceed invoice total",
     paymentExceedsRemaining: "Payment amount exceeds remaining amount",
+    productInactive: "Product is inactive and cannot be added to invoices",
+    companyExists: "A company with this name already exists",
+    alreadyInCompany: "You are already inside this company. Switch to it instead of creating a new one.",
   },
 };
 
@@ -98,6 +105,9 @@ const arAuth = {
     invoiceAlreadyPaid: "الفاتورة مدفوعة بالكامل بالفعل",
     paymentExceedsTotal: "قيمة الدفعة لا يمكن أن تتجاوز إجمالي الفاتورة",
     paymentExceedsRemaining: "قيمة الدفعة تتجاوز المبلغ المتبقي",
+    productInactive: "المنتج غير نشط ولا يمكن إضافته إلى الفواتير",
+    companyExists: "يوجد شركة بهذا الاسم بالفعل",
+    alreadyInCompany: "أنت داخل هذه الشركة بالفعل. انتقل إليها بدلاً من إنشاء شركة جديدة.",
   },
 };
 

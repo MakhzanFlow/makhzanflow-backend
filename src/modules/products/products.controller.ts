@@ -2,6 +2,7 @@ import { injectable, inject } from "tsyringe";
 import type { Response, NextFunction } from "express";
 import type { TenantRequest } from "../../middleware/tenant.middleware.js";
 import { ProductService } from "./products.service.js";
+import { normalizeBooleanFlag } from "./products.validation.js";
 import { uploadImageBuffer } from "../../shared/utils/cloudinary.js";
 import type { TFunction } from "i18next";
 
@@ -20,6 +21,7 @@ export class ProductController {
     try {
       const product = await this.productService.create({
         ...req.body,
+        ...(req.body.is_active !== undefined ? { is_active: normalizeBooleanFlag(req.body.is_active) } : {}),
         company_id: req.companyId!,
       }, req.user?.id ?? "");
       const t = req.t as TFunction;
@@ -72,7 +74,10 @@ export class ProductController {
   async update(req: TenantRequest, res: Response, next: NextFunction) {
     try {
       const id = req.params.id as string;
-      const product = await this.productService.update(id, req.companyId!, req.body, req.user?.id ?? "");
+      const product = await this.productService.update(id, req.companyId!, {
+        ...req.body,
+        ...(req.body.is_active !== undefined ? { is_active: normalizeBooleanFlag(req.body.is_active) } : {}),
+      }, req.user?.id ?? "");
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
@@ -87,11 +92,16 @@ export class ProductController {
   async delete(req: TenantRequest, res: Response, next: NextFunction) {
     try {
       const id = req.params.id as string;
-      await this.productService.delete(id, req.companyId!, req.user?.id ?? "");
+      const result = await this.productService.delete(id, req.companyId!, req.user?.id ?? "");
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
-        message: t ? t("products.deleted") : "Product deleted successfully",
+        message: result.softDeleted
+          ? t ? t("products.deactivated") : "Product deactivated successfully (has invoice references)"
+          : t ? t("products.deleted") : "Product deleted successfully",
+        data: result.softDeleted
+          ? { softDeleted: true, product: result.product }
+          : { softDeleted: false },
       });
     } catch (error) {
       next(error);
