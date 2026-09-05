@@ -2,14 +2,22 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/api/index.ts"
+      "source": "/((?!favicon\\.ico$|favicon\\.png$).*)",
+      "destination": "/api"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "https://brand-github-4884dc.vercel.app/",
+      "permanent": false
     }
   ],
   "functions": {
     "api/index.ts": {
       "memory": 1024,
-      "maxDuration": 30
+      "maxDuration": 30,
+      "includeFiles": "generated/**"
     }
   }
 }

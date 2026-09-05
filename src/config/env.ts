@@ -21,6 +21,7 @@ const envSchema = z.object({
   CLOUDINARY_COMPANY_LOGOS_FOLDER: z.string().default("company_logos"),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+  FRONTEND_URL: z.string().url().default("https://makhzanflow-web.vercel.app"),
 });
 
 const parsed = envSchema.safeParse(process.env);

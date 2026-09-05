@@ -42,9 +42,48 @@ function createLocalClient(): RedisClient {
   };
 }
 
+function createMemoryClient(): RedisClient {
+  const store = new Map<string, { value: string; expiresAt?: number | undefined }>();
+  logger.warn("Redis client falling back to in-memory store (Upstash credentials not configured)");
+
+  return {
+    async get(key: string): Promise<string | null> {
+      const item = store.get(key);
+      if (!item) return null;
+      if (item.expiresAt !== undefined && Date.now() > item.expiresAt) {
+        store.delete(key);
+        return null;
+      }
+      return item.value;
+    },
+    async set(key: string, value: string, opts?: { ex?: number }): Promise<unknown> {
+      const expiresAt = opts?.ex !== undefined ? Date.now() + opts.ex * 1000 : undefined;
+      store.set(key, { value, expiresAt });
+      return "OK";
+    },
+    async del(key: string): Promise<unknown> {
+      return store.delete(key) ? 1 : 0;
+    },
+    async keys(pattern: string): Promise<string[]> {
+      const now = Date.now();
+      const validKeys: string[] = [];
+      for (const [key, item] of store.entries()) {
+        if (item.expiresAt && now > item.expiresAt) {
+          store.delete(key);
+          continue;
+        }
+        if (pattern === "*" || key.startsWith(pattern.replace("*", ""))) {
+          validKeys.push(key);
+        }
+      }
+      return validKeys;
+    },
+  };
+}
+
 const upstashUrl = process.env["UPSTASH_REDIS_REST_URL"];
 const upstashToken = process.env["UPSTASH_REDIS_REST_TOKEN"];
 
 export const redis: RedisClient = upstashUrl && upstashToken
   ? createUpstashClient(upstashUrl, upstashToken)
-  : createLocalClient();
+  : (process.env["NODE_ENV"] === "production" ? createMemoryClient() : createLocalClient());

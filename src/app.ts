@@ -4,8 +4,10 @@ import helmet from "helmet";
 import morgan from "morgan";
 import routes from "./routes.js";
 import { errorHandler } from "./middleware/error.middleware.js";
+import { AppError } from "./shared/errors/app-error.js";
 import { upstashRateLimit } from "./middleware/upstash-rate-limit.middleware.js";
 import { i18next, i18nMiddleware } from "./config/i18n.js";
+import { env } from "./config/env.js";
 
 const REDACTED_KEYS = /token|password|secret|authorization|credit.?card/i;
 
@@ -56,6 +58,15 @@ app.use("/api", routes);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+app.get("/", (_req, res) => {
+  res.redirect(env.FRONTEND_URL);
+});
+
+// 404 handler — must come before errorHandler
+app.use((_req, _res, next) => {
+  next(new AppError(404, "Not Found"));
 });
 
 app.use(errorHandler);

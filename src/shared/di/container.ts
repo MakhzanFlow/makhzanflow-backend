@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import { container } from "tsyringe";
 import { ProductRepository } from "../../modules/products/products.repository.js";
 import { ProductService } from "../../modules/products/products.service.js";
