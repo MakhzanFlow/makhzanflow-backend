@@ -1,21 +1,16 @@
+import { injectable, inject } from 'tsyringe';
 import type { Request, Response, NextFunction } from 'express';
 import { AuthService } from './auth.service.js';
-import { UserRepository, VerificationTokenRepository, RefreshTokenRepository } from './auth.repository.js';
-import { ResendEmailService } from '../../shared/utils/email-resend.js';
 import type { AuthRequest } from '../../middleware/auth.middleware.js';
 import type { TFunction } from 'i18next';
 
-// Instantiate dependencies (in a real app, use dependency injection container)
-const userRepo = new UserRepository();
-const verifyTokenRepo = new VerificationTokenRepository();
-const refreshTokenRepo = new RefreshTokenRepository();
-const emailService = new ResendEmailService();
-const authService = new AuthService(userRepo, verifyTokenRepo, refreshTokenRepo, emailService);
-
+@injectable()
 export class AuthController {
-  async register(req: Request, res: Response, next: NextFunction) {
+  constructor(@inject(AuthService) private authService: AuthService) {}
+
+  register = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const user = await authService.register(req.body);
+      const user = await this.authService.register(req.body);
       const t = req.t as TFunction;
       res.status(201).json({
         success: true,
@@ -25,12 +20,12 @@ export class AuthController {
     } catch (error) {
       next(error);
     }
-  }
+  };
 
-  async verifyEmail(req: Request, res: Response, next: NextFunction) {
+  verifyEmail = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, token } = req.body;
-      const data = await authService.verifyEmail(email, token);
+      const data = await this.authService.verifyEmail(email, token);
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
@@ -40,12 +35,12 @@ export class AuthController {
     } catch (error) {
       next(error);
     }
-  }
+  };
 
-  async resendVerificationEmail(req: Request, res: Response, next: NextFunction) {
+  resendVerificationEmail = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email } = req.body;
-      await authService.resendVerificationEmail(email);
+      await this.authService.resendVerificationEmail(email);
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
@@ -54,11 +49,11 @@ export class AuthController {
     } catch (error) {
       next(error);
     }
-  }
+  };
 
-  async login(req: Request, res: Response, next: NextFunction) {
+  login = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const data = await authService.login(req.body);
+      const data = await this.authService.login(req.body, { ip: req.ip });
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
@@ -68,12 +63,12 @@ export class AuthController {
     } catch (error) {
       next(error);
     }
-  }
+  };
 
-  async refresh(req: Request, res: Response, next: NextFunction) {
+  refresh = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { refreshToken } = req.body;
-      const data = await authService.refreshToken(refreshToken);
+      const data = await this.authService.refreshToken(refreshToken);
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
@@ -83,12 +78,12 @@ export class AuthController {
     } catch (error) {
       next(error);
     }
-  }
+  };
 
-  async logout(req: Request, res: Response, next: NextFunction) {
+  logout = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { refreshToken } = req.body;
-      await authService.logout(refreshToken);
+      await this.authService.logout(refreshToken);
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
@@ -97,12 +92,25 @@ export class AuthController {
     } catch (error) {
       next(error);
     }
-  }
+  };
 
-  async getProfile(req: AuthRequest, res: Response, next: NextFunction) {
+  logoutAll = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      await this.authService.logoutAll(req.user.id);
+      const t = (req as Request).t as TFunction;
+      res.status(200).json({
+        success: true,
+        message: t ? t('logout.success') : 'Logged out from all devices',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getProfile = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const userId = req.user.id;
-      const data = await authService.getProfile(userId);
+      const data = await this.authService.getProfile(userId);
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
@@ -112,7 +120,5 @@ export class AuthController {
     } catch (error) {
       next(error);
     }
-  }
+  };
 }
-
-export const authController = new AuthController();

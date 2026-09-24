@@ -7,7 +7,10 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/src/server.js",
-    "test": "node --import tsx --test \"tests/**/*.test.ts\""
+    "vercel-build": "prisma migrate deploy && prisma generate && tsc",
+    "postinstall": "prisma generate",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "seed:demo": "node --import tsx scripts/seed-onboarding-demo.ts"
   },
   "repository": {
     "type": "git",
@@ -35,11 +38,13 @@
     "supertest": "^7.2.2",
     "ts-node-dev": "^2.0.0",
     "tsx": "^4.23.1",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.2",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.6",
@@ -55,6 +60,7 @@
     "nodemailer": "^9.0.3",
     "pg": "^8.22.0",
     "prisma": "^7.8.0",
+    "redis": "^6.2.0",
     "reflect-metadata": "^0.2.2",
     "resend": "^6.17.2",
     "tsyringe": "^4.10.0",

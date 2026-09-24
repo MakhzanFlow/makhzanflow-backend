@@ -1,23 +1,33 @@
+import { injectable, inject } from 'tsyringe';
 import type { Response, NextFunction } from 'express';
 import type { TenantRequest } from '../../middleware/tenant.middleware.js';
 import { CustomerService } from './customers.service.js';
-import { uploadImageBuffer } from '../../shared/utils/cloudinary.js';
 import type { TFunction } from 'i18next';
-import { container } from 'tsyringe';
 
-const customerService = container.resolve(CustomerService);
-
+@injectable()
 export class CustomerController {
+  constructor(@inject(CustomerService) private customerService: CustomerService) {
+    this.create = this.create.bind(this);
+    this.list = this.list.bind(this);
+    this.getById = this.getById.bind(this);
+    this.update = this.update.bind(this);
+    this.delete = this.delete.bind(this);
+    this.getDebt = this.getDebt.bind(this);
+    this.getSummary = this.getSummary.bind(this);
+    this.getDebtors = this.getDebtors.bind(this);
+    this.getInvoices = this.getInvoices.bind(this);
+    this.getPayments = this.getPayments.bind(this);
+  }
   async create(req: TenantRequest, res: Response, next: NextFunction) {
     try {
-      const customer = await customerService.create({
+      const customer = await this.customerService.create({
         ...req.body,
         company_id: req.companyId!,
       });
       const t = req.t as TFunction;
       res.status(201).json({
         success: true,
-        message: t ? t('customers.created') : 'Customer created successfully',
+        message: t ? t('customers:created') : 'Customer created successfully',
         data: customer,
       });
     } catch (error) {
@@ -33,7 +43,7 @@ export class CustomerController {
       const sort = req.query.sort;
       const order = req.query.order;
       const debt_status = req.query.debt_status;
-      const result = await customerService.list({
+      const result = await this.customerService.list({
         companyId: req.companyId!,
         page: page ? Number(page) : 1,
         limit: limit ? Number(limit) : 20,
@@ -54,7 +64,7 @@ export class CustomerController {
   async getById(req: TenantRequest, res: Response, next: NextFunction) {
     try {
       const id = req.params.id as string;
-      const customer = await customerService.findById(id, req.companyId!);
+      const customer = await this.customerService.findById(id, req.companyId!);
       res.status(200).json({
         success: true,
         data: customer,
@@ -67,30 +77,17 @@ export class CustomerController {
   async update(req: TenantRequest, res: Response, next: NextFunction) {
     try {
       const id = req.params.id as string;
-      const file = req.file;
-
-      const name = req.body.name;
-      if (!name || typeof name !== 'string' || name.trim().length === 0) {
-        const t = req.t as TFunction;
-        res.status(400).json({
-          success: false,
-          message: t ? t('validation.nameRequired') : 'Name is required',
-        });
-        return;
-      }
-
-      const imageUrl = file ? await uploadImageBuffer(file.buffer, 'customer_images') : undefined;
-      const customer = await customerService.update(id, req.companyId!, {
-        name: name.trim(),
-        phone: req.body.phone ?? null,
-        email: req.body.email ?? null,
-        address: req.body.address ?? null,
-      }, imageUrl);
+      const customer = await this.customerService.update(id, req.companyId!, {
+        name: req.body.name,
+        phone: req.body.phone,
+        email: req.body.email,
+        address: req.body.address,
+      }, undefined);
 
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
-        message: t ? t('customers.updated') : 'Customer updated successfully',
+        message: t ? t('customers:updated') : 'Customer updated successfully',
         data: customer,
       });
     } catch (error) {
@@ -102,11 +99,11 @@ export class CustomerController {
   async delete(req: TenantRequest, res: Response, next: NextFunction) {
     try {
       const id = req.params.id as string;
-      await customerService.delete(id, req.companyId!);
+      await this.customerService.delete(id, req.companyId!);
       const t = req.t as TFunction;
       res.status(200).json({
         success: true,
-        message: t ? t('customers.deleted') : 'Customer deleted successfully',
+        message: t ? t('customers:deleted') : 'Customer deleted successfully',
       });
     } catch (error) {
       next(error);
@@ -116,7 +113,7 @@ export class CustomerController {
   async getDebt(req: TenantRequest, res: Response, next: NextFunction) {
     try {
       const id = req.params.id as string;
-      const debt = await customerService.getDebt(id, req.companyId!);
+      const debt = await this.customerService.getDebt(id, req.companyId!);
       res.status(200).json({
         success: true,
         data: debt,
@@ -128,7 +125,7 @@ export class CustomerController {
 
   async getSummary(req: TenantRequest, res: Response, next: NextFunction) {
     try {
-      const summary = await customerService.getSummary(req.companyId!);
+      const summary = await this.customerService.getSummary(req.companyId!);
       res.status(200).json({
         success: true,
         data: summary,
@@ -141,7 +138,7 @@ export class CustomerController {
   async getDebtors(req: TenantRequest, res: Response, next: NextFunction) {
     try {
       const search = req.query.search;
-      const result = await customerService.getDebtors({
+      const result = await this.customerService.getDebtors({
         companyId: req.companyId!,
         page: Number(req.query.page) || 1,
         limit: Number(req.query.limit) || 20,
@@ -161,7 +158,7 @@ export class CustomerController {
       const id = req.params.id as string;
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 20;
-      const result = await customerService.getInvoices(id, req.companyId!, page, limit);
+      const result = await this.customerService.getInvoices(id, req.companyId!, page, limit);
       res.status(200).json({
         success: true,
         ...result,
@@ -176,7 +173,7 @@ export class CustomerController {
       const id = req.params.id as string;
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 20;
-      const result = await customerService.getPayments(id, req.companyId!, page, limit);
+      const result = await this.customerService.getPayments(id, req.companyId!, page, limit);
       res.status(200).json({
         success: true,
         ...result,
@@ -186,20 +183,21 @@ export class CustomerController {
     }
   }
 
-  async uploadImage(req: TenantRequest, res: Response, next: NextFunction) {
+  uploadImage = async (req: TenantRequest, res: Response, next: NextFunction) => {
     try {
       const id = req.params.id as string;
 
       if (!req.file) {
+        const t = req.t as TFunction;
         res.status(400).json({
           success: false,
-          message: 'Image file is required',
+          message: t ? t('customers:imageRequired') : 'Image file is required',
+          errors: [],
         });
         return;
       }
 
-      const imageUrl = await uploadImageBuffer(req.file.buffer, 'customer_images');
-      const result = await customerService.uploadImage(id, req.companyId!, imageUrl);
+      const result = await this.customerService.uploadImageWithBuffer(id, req.companyId!, req.file.buffer);
 
       res.status(200).json({
         success: true,
@@ -209,7 +207,4 @@ export class CustomerController {
       next(error);
     }
   }
-
 }
-
-export const customerController = new CustomerController();

@@ -1,8 +1,10 @@
+import { injectable } from 'tsyringe';
 import { Resend } from 'resend';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import type { IEmailService } from '../../types/email-service.js';
 
+@injectable()
 export class ResendEmailService implements IEmailService {
   private readonly resend: Resend | null;
 

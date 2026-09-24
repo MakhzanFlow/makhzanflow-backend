@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/((?!favicon\\.ico$|favicon\\.png$).*)",
+      "destination": "/api"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "https://makhzanflow-web.vercel.app/",
+      "permanent": false
+    },
+    {
+      "source": "/web",
+      "destination": "https://makhzanflow-web.vercel.app/",
+      "permanent": false
+    }
+  ],
+  "functions": {
+    "api/index.ts": {
+      "memory": 1024,
+      "maxDuration": 30,
+      "includeFiles": "generated/**"
+    }
+  }
+}

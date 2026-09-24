@@ -7,9 +7,20 @@ import { DashboardService } from "./dashboard.service.js";
 export class DashboardController {
   constructor(@inject(DashboardService) private dashboardService: DashboardService) {
     this.getStats = this.getStats.bind(this);
+    this.getSales = this.getSales.bind(this);
     this.getLowStock = this.getLowStock.bind(this);
     this.getMonthlyReport = this.getMonthlyReport.bind(this);
     this.getActivity = this.getActivity.bind(this);
+  }
+
+  async getSales(req: TenantRequest, res: Response, next: NextFunction) {
+    try {
+      const range = (req.query.range as "7d" | "30d" | "90d" | undefined) ?? "7d";
+      const data = await this.dashboardService.getSales(req.companyId!, range);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
   }
 
   async getStats(req: TenantRequest, res: Response, next: NextFunction) {

@@ -3,6 +3,10 @@ package-lock.json
 
 # Keep environment variables out of version control
 .env
+.env.production
+
+# Vercel
+.vercel
 
 /generated/prisma
 
@@ -17,11 +21,10 @@ prisma.config.js.map
 .specify
 docs
 specs
-prisma*
-/generated/prisma
 makhzanflow-postman.md
 postman/
 schema.sql
 
 # Uploaded files
 uploads/
+.agents

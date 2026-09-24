@@ -13,3 +13,8 @@ export interface ProductResponse {
   created_at: Date | null;
   updated_at: Date | null;
 }
+
+export interface DeleteProductResult {
+  softDeleted: boolean;
+  product?: ProductResponse;
+}

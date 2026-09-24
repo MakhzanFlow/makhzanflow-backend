@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+/**
+ * Accepts real JSON booleans as well as "true"/"false" strings
+ * (e.g. from form-data or query-style clients) and normalizes them
+ * to booleans. The `validate` middleware writes the parsed result
+ * back to the request, so controllers receive real booleans.
+ */
+const flexibleBoolean = z.preprocess(
+  (v) => (v === "true" ? true : v === "false" ? false : v),
+  z.boolean()
+);
+
+export function normalizeBooleanFlag(value: unknown): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
+}
+
 export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(1, "Name is required").max(255),
@@ -13,7 +32,7 @@ export const createProductSchema = z.object({
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Expiry date must be YYYY-MM-DD")
       .optional()
       .nullable(),
-    is_active: z.boolean().optional().default(true),
+    is_active: flexibleBoolean.optional().default(true),
   }),
 });
 
@@ -30,7 +49,7 @@ export const updateProductSchema = z.object({
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Expiry date must be YYYY-MM-DD")
       .optional()
       .nullable(),
-    is_active: z.boolean().optional(),
+    is_active: flexibleBoolean.optional(),
   }),
 });
 

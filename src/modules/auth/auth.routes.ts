@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authController } from './auth.controller.js';
+import { container } from 'tsyringe';
+import { AuthController } from './auth.controller.js';
 import { validate } from '../../middleware/validate.middleware.js';
 import { authenticate } from '../../middleware/auth.middleware.js';
 import {
@@ -7,18 +8,22 @@ import {
   loginSchema,
   verifyEmailSchema,
   refreshSchema,
-  logoutSchema
+  logoutSchema,
+  resendVerifySchema
 } from './auth.validation.js';
-import { registerLimiter, loginLimiter, resendVerifyLimiter } from '../../middleware/rate-limit.middleware.js';
+import { registerLimiter, loginLimiter, resendVerifyLimiter, verifyEmailLimiter, refreshLimiter } from '../../middleware/rate-limit.middleware.js';
+
+const authController = container.resolve(AuthController);
 
 const router = Router();
 
 router.post('/register', registerLimiter, validate(registerSchema), authController.register);
 router.post('/login', loginLimiter, validate(loginSchema), authController.login);
-router.post('/verify-email', validate(verifyEmailSchema), authController.verifyEmail);
-router.post('/verify-email/resend', resendVerifyLimiter, authController.resendVerificationEmail);
-router.post('/refresh', validate(refreshSchema), authController.refresh);
+router.post('/verify-email', verifyEmailLimiter, validate(verifyEmailSchema), authController.verifyEmail);
+router.post('/verify-email/resend', resendVerifyLimiter, validate(resendVerifySchema), authController.resendVerificationEmail);
+router.post('/refresh', refreshLimiter, validate(refreshSchema), authController.refresh);
 router.post('/logout', validate(logoutSchema), authController.logout);
+router.post('/logout-all', authenticate, authController.logoutAll);
 router.get('/me', authenticate, authController.getProfile);
 
 export default router;

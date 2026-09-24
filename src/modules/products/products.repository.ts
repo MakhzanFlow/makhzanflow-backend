@@ -118,14 +118,30 @@ export class ProductRepository {
   }
 
   async update(id: string, companyId: string, data: Prisma.productsUncheckedUpdateInput) {
-    return prisma.products.update({
+    const result = await prisma.products.updateMany({
       where: { id, company_id: companyId },
       data,
     });
+    if (result.count === 0) {
+      return null;
+    }
+    return prisma.products.findFirst({ where: { id, company_id: companyId } });
   }
 
   async delete(id: string, companyId: string) {
-    return prisma.products.delete({ where: { id, company_id: companyId } });
+    const result = await prisma.products.deleteMany({ where: { id, company_id: companyId } });
+    return result.count;
+  }
+
+  async softDelete(id: string, companyId: string) {
+    const result = await prisma.products.updateMany({
+      where: { id, company_id: companyId },
+      data: { is_active: false },
+    });
+    if (result.count === 0) {
+      return null;
+    }
+    return prisma.products.findFirst({ where: { id, company_id: companyId } });
   }
 
   async findBySku(sku: string, companyId: string) {

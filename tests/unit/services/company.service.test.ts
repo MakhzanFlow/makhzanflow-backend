@@ -3,6 +3,7 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert";
 import { CompanyService } from "../../../src/modules/companies/company.service.js";
 import { CompanyRepository } from "../../../src/modules/companies/company.repository.js";
+import type { ICacheService } from "../../../src/shared/cache/cache.interface.js";
 import { PERMISSION_GROUPS } from "../../../src/shared/constants/permissions.js";
 
 function makeRepoStubs(): InstanceType<typeof CompanyRepository> {
@@ -15,6 +16,22 @@ function makeRepoStubs(): InstanceType<typeof CompanyRepository> {
   return repo;
 }
 
+function makeCacheStub(): ICacheService {
+  return {
+    get: async () => null,
+    set: async () => {},
+    del: async () => {},
+    delPattern: async () => {},
+  };
+}
+
+function makeStorageStub() {
+  return {
+    uploadBuffer: async () => "https://example.com/logo.png",
+    uploadBase64Maybe: async (v: string | null | undefined) => v ?? null,
+  };
+}
+
 const companyId = "company-uuid";
 
 void describe("CompanyService", () => {
@@ -23,7 +40,7 @@ void describe("CompanyService", () => {
 
   beforeEach(() => {
     repo = makeRepoStubs();
-    service = new CompanyService(repo);
+    service = new CompanyService(repo, makeCacheStub(), makeStorageStub() as any);
   });
 
   void describe("getPermissionCatalog()", () => {
@@ -52,7 +69,7 @@ void describe("CompanyService", () => {
 
   void describe("getMemberPermissions()", () => {
     void it("returns the member role and flattened permission keys", async () => {
-      (repo.findMember as any).mock.mockImplementation(async (companyId: string, userId: string) => {
+      (repo.findMember as any).mock.mockImplementation(async (_companyId: string, userId: string) => {
         if (userId === "operator-1") return { role: "owner", permissions: { all: true } };
         return {
           role: "member",
@@ -102,7 +119,7 @@ void describe("CompanyService", () => {
     });
 
     void it("rejects when the target member does not exist", async () => {
-      (repo.findMember as any).mock.mockImplementation(async (companyId: string, userId: string) => {
+      (repo.findMember as any).mock.mockImplementation(async (_companyId: string, userId: string) => {
         if (userId === "operator-1") return { role: "owner", permissions: { all: true } };
         return null;
       });

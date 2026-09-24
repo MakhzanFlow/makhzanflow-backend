@@ -10,8 +10,14 @@ import type {
   ActivityParams,
   RecentActivity,
   WeeklySalesPoint,
+  SalesRange,
 } from "./dashboard.types.js";
 import type { PaginatedResponse } from "../../shared/types/shared.dto.js";
+import { CacheService } from "../../shared/cache/cache.service.js";
+import { CacheKeys } from "../../shared/cache/cache-keys.js";
+import { hashQuery } from "../../shared/cache/hash.js";
+import { CACHE_TTL } from "../../shared/cache/constants.js";
+import type { ICacheService } from "../../shared/cache/cache.interface.js";
 
 interface YearMonth {
   year: number;
@@ -26,12 +32,12 @@ function shiftMonth(ym: YearMonth, delta: number): YearMonth {
 function parseMonth(value: string): YearMonth {
   const match = /^(\d{4})-(\d{2})/.exec(value);
   if (!match) {
-    throw new AppError(400, `Invalid month format: "${value}". Expected YYYY-MM`);
+    throw new AppError(400, `Invalid month format: "${value}". Expected YYYY-MM`, 'errors.invalidMonth');
   }
   const year = Number(match[1]);
   const month = Number(match[2]);
   if (month < 1 || month > 12) {
-    throw new AppError(400, `Invalid month: ${month}. Must be between 01 and 12`);
+    throw new AppError(400, `Invalid month: ${month}. Must be between 01 and 12`, 'errors.invalidMonth');
   }
   return { year, month };
 }
@@ -39,7 +45,8 @@ function parseMonth(value: string): YearMonth {
 @injectable()
 export class DashboardService {
   constructor(
-    @inject(DashboardRepository) private dashboardRepository: DashboardRepository
+    @inject(DashboardRepository) private dashboardRepository: DashboardRepository,
+    @inject(CacheService) private cache: ICacheService
   ) {}
 
   private readonly arabicDayLabels: Record<string, string> = {
@@ -48,6 +55,10 @@ export class DashboardService {
   };
 
   async getStats(companyId: string): Promise<DashboardStats> {
+    const cacheKey = CacheKeys.dashboard.stats(companyId);
+    const cached = await this.cache.get<DashboardStats>(cacheKey);
+    if (cached) return cached;
+
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(startOfDay.getTime() + 86400000);
@@ -89,7 +100,7 @@ export class DashboardService {
       });
     }
 
-    return {
+    const response: DashboardStats = {
       productsCount,
       customersCount,
       totalDebt,
@@ -108,10 +119,42 @@ export class DashboardService {
       })),
       fetchedAt: now,
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.SHORT);
+    return response;
+  }
+
+  async getSales(companyId: string, range: SalesRange): Promise<WeeklySalesPoint[]> {
+    const days = range === "90d" ? 90 : range === "30d" ? 30 : 7;
+    const now = new Date();
+    const since = new Date(now.getTime() - days * 86400000);
+    const rows = await this.dashboardRepository.salesSince(companyId, since);
+    const salesMap = new Map<string, number>();
+
+    for (const row of rows) {
+      const key = new Date(row.day).toISOString().split("T")[0] ?? "";
+      salesMap.set(key, Number(row.total));
+    }
+
+    const result: WeeklySalesPoint[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 86400000);
+      const key = date.toISOString().split("T")[0] ?? "";
+      result.push({
+        date: key,
+        label: this.arabicDayLabels[date.getDay().toString()] ?? "",
+        amount: salesMap.get(key) ?? 0,
+      });
+    }
+    return result;
   }
 
   async getLowStock(params: LowStockParams): Promise<PaginatedResponse<LowStockProduct>> {
     const skip = (params.page - 1) * params.limit;
+
+    const cacheKey = CacheKeys.dashboard.lowStock(params.companyId, hashQuery({ page: params.page, limit: params.limit, sort: params.sort, order: params.order, search: params.search }));
+    const cached = await this.cache.get<PaginatedResponse<LowStockProduct>>(cacheKey);
+    if (cached) return cached;
 
     const [rows, total] = await Promise.all([
       this.dashboardRepository.findLowStock(
@@ -125,7 +168,7 @@ export class DashboardService {
       this.dashboardRepository.countLowStock(params.companyId, params.search),
     ]);
 
-    return {
+    const response: PaginatedResponse<LowStockProduct> = {
       data: rows.map((p) => ({
         id: p.id,
         name: p.name,
@@ -143,10 +186,17 @@ export class DashboardService {
         pages: Math.ceil(total / params.limit),
       },
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 
   async getMonthlyReport(params: MonthlyReportParams): Promise<MonthlyReportEntry[]> {
     const { companyId, months = 12, from, to } = params;
+
+    const cacheKey = CacheKeys.dashboard.monthlyReport(companyId, hashQuery({ months, from, to }));
+    const cached = await this.cache.get<MonthlyReportEntry[]>(cacheKey);
+    if (cached) return cached;
 
     const now = new Date();
     const currentMonth: YearMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
@@ -162,17 +212,19 @@ export class DashboardService {
 
       const monthCount = (endYM.year - startYM.year) * 12 + (endYM.month - startYM.month) + 1;
       if (monthCount > 24) {
-        throw new AppError(400, "Dashboard report range cannot exceed 24 months");
+        throw new AppError(400, "Dashboard report range cannot exceed 24 months", 'errors.invalidReportRange');
       }
       if (monthCount < 1) {
-        throw new AppError(400, "Dashboard report range is invalid: 'from' must be before or equal to 'to'");
+        throw new AppError(400, "Dashboard report range is invalid: 'from' must be before or equal to 'to'", 'errors.invalidReportRange');
       }
     } else {
       endYM = currentMonth;
       startYM = shiftMonth(endYM, -(months - 1));
     }
 
-    return this.buildMonthlyReport(companyId, startYM, endYM);
+    const result = await this.buildMonthlyReport(companyId, startYM, endYM);
+    await this.cache.set(cacheKey, result, CACHE_TTL.MEDIUM);
+    return result;
   }
 
   private async buildMonthlyReport(
@@ -213,12 +265,16 @@ export class DashboardService {
   async getActivity(params: ActivityParams): Promise<PaginatedResponse<RecentActivity>> {
     const skip = (params.page - 1) * params.limit;
 
+    const cacheKey = CacheKeys.dashboard.activity(params.companyId, hashQuery({ page: params.page, limit: params.limit }));
+    const cached = await this.cache.get<PaginatedResponse<RecentActivity>>(cacheKey);
+    if (cached) return cached;
+
     const [logs, total] = await Promise.all([
       this.dashboardRepository.listActivity(params.companyId, skip, params.limit),
       this.dashboardRepository.countActivity(params.companyId),
     ]);
 
-    return {
+    const response: PaginatedResponse<RecentActivity> = {
       data: logs.map((log) => ({
         id: log.id,
         user_id: log.user_id,
@@ -236,5 +292,8 @@ export class DashboardService {
         pages: Math.ceil(total / params.limit),
       },
     };
+
+    await this.cache.set(cacheKey, response, CACHE_TTL.MEDIUM);
+    return response;
   }
 }

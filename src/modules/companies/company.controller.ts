@@ -1,6 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import type { Response, NextFunction } from 'express';
 import { CompanyService } from './company.service.js';
+import { AppError } from '../../shared/errors/app-error.js';
 import type { AuthRequest } from '../../middleware/auth.middleware.js';
 
 @injectable()
@@ -10,6 +11,7 @@ export class CompanyController {
     this.getCompanyDetails = this.getCompanyDetails.bind(this);
     this.updateCompany = this.updateCompany.bind(this);
     this.deleteCompany = this.deleteCompany.bind(this);
+    this.restoreCompany = this.restoreCompany.bind(this);
     this.getUserCompanies = this.getUserCompanies.bind(this);
     this.getPermissionCatalog = this.getPermissionCatalog.bind(this);
     this.getMemberPermissions = this.getMemberPermissions.bind(this);
@@ -79,7 +81,7 @@ export class CompanyController {
   }
 
   /**
-   * Delete company
+   * Delete company (soft-delete, reversible)
    */
   async deleteCompany(req: AuthRequest, res: Response, next: NextFunction) {
     try {
@@ -89,7 +91,25 @@ export class CompanyController {
 
       res.status(200).json({
         success: true,
-        message: 'Company deleted successfully',
+        message: 'Company archived successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Restore a soft-deleted company (owner only)
+   */
+  async restoreCompany(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user.id;
+      const id = req.params['id'] as string;
+      const company = await this.companyService.restoreCompany(id, userId);
+
+      res.status(200).json({
+        success: true,
+        data: company,
       });
     } catch (error) {
       next(error);
@@ -116,7 +136,7 @@ export class CompanyController {
   /**
    * Get the full permission catalog for the UI (checkbox rendering)
    */
-  async getPermissionCatalog(req: AuthRequest, res: Response, next: NextFunction) {
+  async getPermissionCatalog(_req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const catalog = this.companyService.getPermissionCatalog();
 
@@ -240,8 +260,7 @@ export class CompanyController {
       const company = await this.companyService.lookupCompany(code);
 
       if (!company) {
-        res.status(404).json({ success: false, message: 'Company not found' });
-        return;
+        throw new AppError(404, 'Company not found', 'errors.companyNotFound');
       }
 
       res.status(200).json({ success: true, data: company });

@@ -288,6 +288,59 @@ docker compose down
 
 ---
 
+# Deployment
+
+## Production: Vercel + Neon + Upstash
+
+The backend deploys to Vercel as a serverless function.
+
+- **Database**: Neon PostgreSQL (pooled endpoint via `DATABASE_URL`, direct endpoint via `DIRECT_URL` for migrations)
+- **Redis**: Upstash Redis (REST API via `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`)
+- **Entrypoint**: `api/index.ts` (imports the Express app — never calls `app.listen()`)
+- **Config**: `vercel.json` routes all traffic to the serverless function
+
+### Required production environment variables
+
+```env
+DATABASE_URL=postgresql://...-pooler...?sslmode=require
+DIRECT_URL=postgresql://...?sslmode=require
+JWT_SECRET=
+JWT_REFRESH_SECRET=
+UPSTASH_REDIS_REST_URL=https://...upstash.io
+UPSTASH_REDIS_REST_TOKEN=
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+NODE_ENV=production
+```
+
+### Apply migrations to production
+
+```bash
+DIRECT_URL="postgresql://...?sslmode=require" npx prisma migrate deploy
+```
+
+### Local development
+
+Docker Compose runs Postgres (port 5433) and Redis (port 6379). The app uses
+`@upstash/redis` only when `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`
+are set; otherwise it falls back to the local Docker Redis client.
+
+## Future: VPS Migration
+
+To move from Vercel to a VPS (Railway, Render, DigitalOcean, etc.):
+
+1. Delete `api/index.ts` and `vercel.json` (the only Vercel-specific files)
+2. Run `npm run build && npm start` — `src/server.ts` starts the HTTP listener
+   when `VERCEL` is not set
+3. Point `DATABASE_URL` at the VPS database (or keep Neon), set `DIRECT_URL`
+   for migrations
+4. Optionally swap the Upstash REST client for a TCP client (`redis`/`ioredis`)
+   in `src/config/redis.ts`
+5. Add PM2 or systemd and a reverse proxy (Nginx/Caddy) for SSL
+
+---
+
 # Available Scripts
 
 ```bash
@@ -406,6 +459,17 @@ Example:
 - Multi-language support
 - Public REST API
 - Webhooks
+
+---
+
+# Operations & Deployment Notes
+
+- **Database URLs**: `DATABASE_URL` must be the **pooled** connection string (PgBouncer/Neon pool) used by the app at runtime. `DIRECT_URL` (optional locally, recommended in prod) is the **direct** connection used only by `prisma migrate deploy`. Local docker-compose example: `DATABASE_URL="postgresql://postgres:postgres@localhost:5433/makhzanflow"`.
+- **JWT secrets**: `JWT_SECRET` and `JWT_REFRESH_SECRET` must be two **different** 256-bit values — the app refuses to boot otherwise. Rotating either one invalidates all sessions (force logout by design).
+- **Redis in production**: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` are **required** when `NODE_ENV=production`; the app fails fast instead of falling back to an in-memory cache. Local dev uses the docker-compose Redis (`REDIS_HOST`/`REDIS_PORT`, defaults `localhost:6379`).
+- **Rate limits**: the `DISABLE_RATE_LIMIT=1` test hook is honored only outside production.
+- **Migrations**: run `prisma migrate deploy && prisma generate` before build (see `vercel-build`). The `20260923000000_soft_delete_and_indexes` migration adds `companies.deleted_at` (soft-delete) and hot-path indexes.
+- **Company deletion is a soft-delete** (`deleted_at`); data is preserved and restorable via `POST /api/companies/:id/restore` (owner only).
 
 ---
 

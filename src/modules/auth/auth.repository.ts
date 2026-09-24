@@ -1,6 +1,8 @@
+import { injectable } from 'tsyringe';
 import { prisma } from '../../database/prisma.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 
+@injectable()
 export class UserRepository {
   async findByEmail(email: string) {
     return prisma.users.findUnique({ where: { email } });
@@ -19,6 +21,7 @@ export class UserRepository {
   }
 }
 
+@injectable()
 export class RefreshTokenRepository {
   async create(data: Prisma.refresh_tokensCreateInput) {
     return prisma.refresh_tokens.create({ data });
@@ -37,6 +40,7 @@ export class RefreshTokenRepository {
   }
 }
 
+@injectable()
 export class VerificationTokenRepository {
   async create(data: Prisma.verification_tokensCreateInput) {
     return prisma.verification_tokens.create({ data });

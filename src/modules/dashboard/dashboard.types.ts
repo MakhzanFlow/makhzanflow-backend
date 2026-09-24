@@ -4,6 +4,8 @@ export interface WeeklySalesPoint {
   amount: number;
 }
 
+export type SalesRange = "7d" | "30d" | "90d";
+
 export interface RecentActivity {
   id: string;
   user_id: string;

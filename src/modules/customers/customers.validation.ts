@@ -11,8 +11,11 @@ export const createCustomerSchema = z.object({
 });
 
 export const updateCustomerSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid customer ID'),
+  }),
   body: z.object({
-    name: z.string().min(1, 'Name is required').max(255),
+    name: z.string().min(1, 'Name is required').max(255).optional(),
     phone: z.string().max(50).optional().nullable(),
     email: z.string().email('Invalid email').max(255).optional().nullable(),
     address: z.string().optional().nullable(),

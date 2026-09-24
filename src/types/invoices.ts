@@ -3,7 +3,6 @@ import { invoice_status, payment_method } from "../../generated/prisma/client.js
 export interface CreateInvoiceItemInput {
   product_id: string;
   quantity: number;
-  unit_price?: number;
 }
 
 export interface CreateInvoicePaymentInput {

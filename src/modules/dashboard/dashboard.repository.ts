@@ -55,6 +55,10 @@ export class DashboardRepository {
     `;
   }
 
+  async salesSince(companyId: string, since: Date) {
+    return this.weeklySales(companyId, since);
+  }
+
   async recentActivities(companyId: string, since: Date, take: number) {
     return prisma.activity_logs.findMany({
       where: { company_id: companyId, created_at: { gte: since } },

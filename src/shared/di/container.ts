@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import { container } from "tsyringe";
 import { ProductRepository } from "../../modules/products/products.repository.js";
 import { ProductService } from "../../modules/products/products.service.js";
@@ -16,6 +17,18 @@ import { DashboardController } from "../../modules/dashboard/dashboard.controlle
 import { CompanyRepository } from "../../modules/companies/company.repository.js";
 import { CompanyService } from "../../modules/companies/company.service.js";
 import { CompanyController } from "../../modules/companies/company.controller.js";
+import { UserRepository, RefreshTokenRepository, VerificationTokenRepository } from "../../modules/auth/auth.repository.js";
+import { AuthService } from "../../modules/auth/auth.service.js";
+import { AuthController } from "../../modules/auth/auth.controller.js";
+import { CustomerController } from "../../modules/customers/customers.controller.js";
+import { PaymentRepository } from "../../modules/payments/payments.repository.js";
+import { PaymentService } from "../../modules/payments/payments.service.js";
+import { PaymentController } from "../../modules/payments/payments.controller.js";
+import { ResendEmailService } from "../utils/email-resend.js";
+import { StorageService } from "../storage/storage.service.js";
+import type { ICacheService } from "../cache/cache.interface.js";
+import { CacheService } from "../cache/cache.service.js";
+import { redis } from "../../config/redis.js";
 
 container.registerSingleton(ProductRepository);
 container.registerSingleton(ActivityLogRepository);
@@ -34,3 +47,16 @@ container.registerSingleton(DashboardController);
 container.registerSingleton(CompanyRepository);
 container.registerSingleton(CompanyService);
 container.registerSingleton(CompanyController);
+container.registerSingleton(UserRepository);
+container.registerSingleton(RefreshTokenRepository);
+container.registerSingleton(VerificationTokenRepository);
+container.registerSingleton(ResendEmailService);
+container.registerSingleton(AuthService);
+container.registerSingleton(AuthController);
+container.registerSingleton(CustomerController);
+container.registerSingleton(StorageService);
+container.registerSingleton(PaymentRepository);
+container.registerSingleton(PaymentService);
+container.registerSingleton(PaymentController);
+
+container.registerInstance<ICacheService>(CacheService, new CacheService(redis));
