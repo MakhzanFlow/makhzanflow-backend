@@ -7,6 +7,7 @@ const enProducts = {
   deleted: "Product deleted successfully",
   deactivated: "Product deactivated successfully (has invoice references)",
   imageUploaded: "Image uploaded successfully",
+  imageRequired: "Image file is required",
   errors: {
     productNotFound: "Product not found",
     productHasInvoiceReferences: "Cannot delete product that is referenced in invoices",
@@ -24,6 +25,7 @@ const arProducts = {
   deleted: "تم حذف المنتج بنجاح",
   deactivated: "تم إلغاء تنشيط المنتج بنجاح (مرتبط بفواتير)",
   imageUploaded: "تم رفع الصورة بنجاح",
+  imageRequired: "ملف الصورة مطلوب",
   errors: {
     productNotFound: "المنتج غير موجود",
     productHasInvoiceReferences: "لا يمكن حذف منتج مرتبط بالفواتير",
@@ -61,14 +63,30 @@ const enAuth = {
     userNotFound: "User not found",
     rateLimit: "Too many requests. Please try again later.",
     unexpected: "Unexpected server error",
+    notFound: "Not Found",
+    duplicate: "Duplicate record",
+    tooManyAttempts: "Too many attempts. Please try again later.",
+    forbidden: "Forbidden",
+    unauthorized: "Unauthorized",
+    companyScopeRequired: "Company scope is required",
+    notCompanyMember: "You are not a member of this company",
+    authentication: "Authentication required",
     invoiceNotFound: "Invoice not found",
     invoiceCanceled: "Cannot add payment to a canceled invoice",
     invoiceAlreadyCanceled: "Invoice is already canceled",
     invoiceAlreadyPaid: "Invoice is already fully paid",
     paymentExceedsTotal: "Payment amount cannot exceed invoice total",
     paymentExceedsRemaining: "Payment amount exceeds remaining amount",
+    invoiceConflict: "Invoice conflict",
+    customerNotFound: "Customer not found",
+    customerHasInvoices: "Cannot delete customer with existing invoices",
+    insufficientStock: "Insufficient stock",
+    productNotFound: "Product not found",
     productInactive: "Product is inactive and cannot be added to invoices",
     companyExists: "A company with this name already exists",
+    companyNotFound: "Company not found",
+    invalidMonth: "Invalid month. Expected YYYY-MM",
+    invalidReportRange: "Invalid report range",
     alreadyInCompany: "You are already inside this company. Switch to it instead of creating a new one.",
   },
 };
@@ -111,6 +129,22 @@ const arAuth = {
   },
 };
 
+const enCustomers = {
+  created: "Customer created successfully",
+  updated: "Customer updated successfully",
+  deleted: "Customer deleted successfully",
+  imageUploaded: "Image uploaded successfully",
+  imageRequired: "Image file is required",
+};
+
+const arCustomers = {
+  created: "تم إنشاء العميل بنجاح",
+  updated: "تم تحديث العميل بنجاح",
+  deleted: "تم حذف العميل بنجاح",
+  imageUploaded: "تم رفع الصورة بنجاح",
+  imageRequired: "ملف الصورة مطلوب",
+};
+
 const enInvoices = {
   created: "Invoice created successfully",
   paymentAdded: "Payment added successfully",
@@ -126,11 +160,11 @@ const arInvoices = {
 await i18next.use(middleware.LanguageDetector).init({
   fallbackLng: "en",
   preload: ["en", "ar"],
-  ns: ["auth", "products", "invoices"],
+  ns: ["auth", "products", "invoices", "customers"],
   defaultNS: "auth",
   resources: {
-    en: { auth: enAuth, products: enProducts, invoices: enInvoices },
-    ar: { auth: arAuth, products: arProducts, invoices: arInvoices },
+    en: { auth: enAuth, products: enProducts, invoices: enInvoices, customers: enCustomers },
+    ar: { auth: arAuth, products: arProducts, invoices: arInvoices, customers: arCustomers },
   },
   detection: {
     order: ["header", "querystring"],

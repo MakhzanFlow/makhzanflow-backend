@@ -3,9 +3,12 @@ import { PrismaClient } from "../../generated/prisma/client.js";
 import { env } from "../config/env.js";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+// Production runs behind a pooled connection string (PgBouncer/Neon pool);
+// keep per-instance connections small but >1 so concurrent transactions
+// and FOR UPDATE locks don't serialize behind a single connection.
 const adapter = new PrismaPg({
   connectionString: env.DATABASE_URL,
-  max: env.NODE_ENV === "production" ? 1 : 10,
+  max: env.NODE_ENV === "production" ? 5 : 10,
   connectionTimeoutMillis: 5000,
 });
 

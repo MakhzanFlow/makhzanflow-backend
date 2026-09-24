@@ -1,6 +1,7 @@
 import { Redis as UpstashRedis } from "@upstash/redis";
 import { createClient, type RedisClientType } from "redis";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
 export interface RedisClient {
   get(key: string): Promise<string | null>;
@@ -9,17 +10,33 @@ export interface RedisClient {
   keys(pattern: string): Promise<string[]>;
 }
 
-function createUpstashClient(url: string, token: string): UpstashRedis {
+export function getRedisConfig() {
+  return {
+    upstashUrl: env.UPSTASH_REDIS_REST_URL,
+    upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
+    redisHost: env.REDIS_HOST,
+    redisPort: env.REDIS_PORT,
+    nodeEnv: env.NODE_ENV,
+  };
+}
+
+function createUpstashClient(url: string, token: string): RedisClient {
   const client = new UpstashRedis({ url, token });
   logger.info("Redis client initialized (Upstash REST)");
-  return client;
+  const upstash = client as unknown as RedisClient;
+  return {
+    get: (key) => upstash.get(key),
+    set: (key, value, opts) => upstash.set(key, value, opts),
+    del: (key) => upstash.del(key),
+    keys: (pattern) => upstash.keys(pattern),
+  };
 }
 
 let localClient: RedisClientType | null = null;
 
 function createLocalClient(): RedisClient {
   const client: RedisClientType = createClient({
-    url: `redis://${process.env["REDIS_HOST"] ?? "localhost"}:${parseInt(process.env["REDIS_PORT"] ?? "6379", 10)}`,
+    url: `redis://${env.REDIS_HOST}:${env.REDIS_PORT}`,
   });
   localClient = client;
   client.on("error", (err) => logger.error("Redis connection error:", err));
@@ -40,12 +57,33 @@ function createLocalClient(): RedisClient {
       return client.del(key);
     },
     async keys(pattern: string): Promise<string[]> {
-      return client.keys(pattern);
+      if (pattern === "*") {
+        return client.keys(pattern);
+      }
+      // Prefer SCAN over KEYS to avoid blocking the server.
+      const matched = new Set<string>();
+      let cursor = "0";
+      do {
+        const result = await (client as any).scan(cursor, { MATCH: pattern, COUNT: 200 });
+        const nextCursor = Array.isArray(result) ? String(result[0]) : String((result as any)?.cursor ?? "0");
+        const batch: string[] = Array.isArray(result) ? result[1] ?? [] : (result as any)?.keys ?? [];
+        for (const key of batch) matched.add(key);
+        cursor = nextCursor;
+      } while (cursor !== "0");
+      return [...matched];
     },
   };
 }
 
-function createMemoryClient(): RedisClient {
+function globToRegExp(glob: string): RegExp {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`);
+}
+
+export function createMemoryClient(): RedisClient {
+  if (env.NODE_ENV === "production") {
+    throw new Error("In-memory cache is not allowed in production. Configure UPSTASH_REDIS_REST_URL/TOKEN.");
+  }
   const store = new Map<string, { value: string; expiresAt?: number | undefined }>();
   logger.warn("Redis client falling back to in-memory store (Upstash credentials not configured)");
 
@@ -69,13 +107,14 @@ function createMemoryClient(): RedisClient {
     },
     async keys(pattern: string): Promise<string[]> {
       const now = Date.now();
+      const re = globToRegExp(pattern);
       const validKeys: string[] = [];
       for (const [key, item] of store.entries()) {
         if (item.expiresAt && now > item.expiresAt) {
           store.delete(key);
           continue;
         }
-        if (pattern === "*" || key.startsWith(pattern.replace("*", ""))) {
+        if (re.test(key)) {
           validKeys.push(key);
         }
       }
@@ -84,12 +123,16 @@ function createMemoryClient(): RedisClient {
   };
 }
 
-const upstashUrl = process.env["UPSTASH_REDIS_REST_URL"];
-const upstashToken = process.env["UPSTASH_REDIS_REST_TOKEN"];
+const upstashUrl = env.UPSTASH_REDIS_REST_URL;
+const upstashToken = env.UPSTASH_REDIS_REST_TOKEN;
+
+if (env.NODE_ENV === "production" && (!upstashUrl || !upstashToken)) {
+  throw new Error("UPSTASH_REDIS_REST_URL/TOKEN are required in production (no in-memory cache fallback).");
+}
 
 export const redis: RedisClient = upstashUrl && upstashToken
   ? createUpstashClient(upstashUrl, upstashToken)
-  : (process.env["NODE_ENV"] === "production" ? createMemoryClient() : createLocalClient());
+  : createLocalClient();
 
 /**
  * Closes the underlying local node-redis connection when one exists.

@@ -27,3 +27,4 @@ schema.sql
 
 # Uploaded files
 uploads/
+.agents

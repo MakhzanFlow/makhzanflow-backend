@@ -18,6 +18,8 @@ model billing_history {
   created_at         DateTime?          @default(now()) @db.Timestamptz(6)
   companies          companies          @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   subscription_plans subscription_plans @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id], map: "idx_billing_history_company")
 }
 
 model companies {
@@ -27,6 +29,7 @@ model companies {
   invite_code           String?                @unique @db.VarChar(50)
   created_at            DateTime?              @default(now()) @db.Timestamptz(6)
   updated_at            DateTime?              @default(now()) @db.Timestamptz(6)
+  deleted_at            DateTime?              @db.Timestamptz(6)
   activity_logs         activity_logs[]
   billing_history       billing_history[]
   company_members       company_members[]
@@ -37,6 +40,8 @@ model companies {
   join_requests         join_requests[]
   payments              payments[]
   products              products[]
+
+  @@index([deleted_at], map: "idx_companies_deleted_at")
 }
 
 model company_members {
@@ -67,6 +72,8 @@ model company_subscriptions {
   updated_at           DateTime?           @default(now()) @db.Timestamptz(6)
   companies            companies           @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   subscription_plans   subscription_plans  @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([plan_id], map: "idx_company_subscriptions_plan")
 }
 
 model customers {
@@ -80,10 +87,13 @@ model customers {
   image_url       String?
   created_at      DateTime?  @default(now()) @db.Timestamptz(6)
   updated_at      DateTime?  @default(now()) @db.Timestamptz(6)
-  companies       companies  @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  companies       companies       @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   invoices        invoices[]
 
   @@index([company_id], map: "idx_customers_company")
+  @@index([company_id, name], map: "idx_customers_company_name")
+  @@index([email], map: "idx_customers_email")
+  @@index([phone], map: "idx_customers_phone")
 }
 
 model inventory_logs {
@@ -103,6 +113,8 @@ model inventory_logs {
 
   @@index([company_id], map: "idx_inventory_logs_company")
   @@index([product_id], map: "idx_inventory_logs_product")
+  @@index([user_id], map: "idx_inventory_logs_user")
+  @@index([company_id, created_at], map: "idx_inventory_logs_company_created")
 }
 
 model invoice_items {
@@ -117,6 +129,7 @@ model invoice_items {
   products    products? @relation(fields: [product_id], references: [id], onUpdate: NoAction)
 
   @@index([invoice_id], map: "idx_invoice_items_invoice")
+  @@index([product_id], map: "idx_invoice_items_product")
 }
 
 model invoices {
@@ -140,6 +153,10 @@ model invoices {
 
   @@unique([company_id, invoice_number])
   @@index([company_id], map: "idx_invoices_company")
+  @@index([customer_id], map: "idx_invoices_customer")
+  @@index([status], map: "idx_invoices_status")
+  @@index([created_at], map: "idx_invoices_created")
+  @@index([company_id, created_at], map: "idx_invoices_company_created")
 }
 
 model join_requests {
@@ -153,6 +170,9 @@ model join_requests {
   users      users          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([company_id, user_id])
+
+  @@index([company_id], map: "idx_join_requests_company")
+  @@index([user_id], map: "idx_join_requests_user")
 }
 
 model payments {
@@ -169,6 +189,8 @@ model payments {
 
   @@index([company_id], map: "idx_payments_company")
   @@index([invoice_id], map: "idx_payments_invoice")
+  @@index([created_at], map: "idx_payments_created")
+  @@index([company_id, created_at], map: "idx_payments_company_created")
 }
 
 model products {
@@ -193,6 +215,8 @@ model products {
   @@unique([company_id, sku])
   @@index([barcode], map: "idx_products_barcode")
   @@index([company_id], map: "idx_products_company")
+  @@index([company_id, name], map: "idx_products_company_name")
+  @@index([company_id, is_active], map: "idx_products_company_active")
 }
 
 model refresh_tokens {
@@ -203,7 +227,6 @@ model refresh_tokens {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([token], map: "idx_refresh_tokens_token")
   @@index([user_id], map: "idx_refresh_tokens_user")
 }
 
@@ -236,7 +259,6 @@ model users {
   refresh_tokens      refresh_tokens[]
   verification_tokens verification_tokens[]
 
-  @@index([email], map: "idx_users_email")
 }
 
 model verification_tokens {
@@ -247,7 +269,6 @@ model verification_tokens {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([token], map: "idx_verification_tokens_token")
   @@index([user_id], map: "idx_verification_tokens_user")
 }
 

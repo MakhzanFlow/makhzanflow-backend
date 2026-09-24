@@ -9,7 +9,8 @@
     "start": "node dist/src/server.js",
     "vercel-build": "prisma migrate deploy && prisma generate && tsc",
     "postinstall": "prisma generate",
-    "test": "node --import tsx --test \"tests/**/*.test.ts\""
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "seed:demo": "node --import tsx scripts/seed-onboarding-demo.ts"
   },
   "repository": {
     "type": "git",
