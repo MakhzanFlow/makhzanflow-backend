@@ -462,6 +462,17 @@ Example:
 
 ---
 
+# Operations & Deployment Notes
+
+- **Database URLs**: `DATABASE_URL` must be the **pooled** connection string (PgBouncer/Neon pool) used by the app at runtime. `DIRECT_URL` (optional locally, recommended in prod) is the **direct** connection used only by `prisma migrate deploy`. Local docker-compose example: `DATABASE_URL="postgresql://postgres:postgres@localhost:5433/makhzanflow"`.
+- **JWT secrets**: `JWT_SECRET` and `JWT_REFRESH_SECRET` must be two **different** 256-bit values — the app refuses to boot otherwise. Rotating either one invalidates all sessions (force logout by design).
+- **Redis in production**: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` are **required** when `NODE_ENV=production`; the app fails fast instead of falling back to an in-memory cache. Local dev uses the docker-compose Redis (`REDIS_HOST`/`REDIS_PORT`, defaults `localhost:6379`).
+- **Rate limits**: the `DISABLE_RATE_LIMIT=1` test hook is honored only outside production.
+- **Migrations**: run `prisma migrate deploy && prisma generate` before build (see `vercel-build`). The `20260923000000_soft_delete_and_indexes` migration adds `companies.deleted_at` (soft-delete) and hot-path indexes.
+- **Company deletion is a soft-delete** (`deleted_at`); data is preserved and restorable via `POST /api/companies/:id/restore` (owner only).
+
+---
+
 # License
 
 This project is licensed under the MIT License.
