@@ -20,6 +20,9 @@ export const updateCompanySchema = z.object({
 });
 
 export const addMemberSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid company ID'),
+  }),
   body: z.object({
     targetUserId: z.string().uuid('Invalid user ID'),
     role: z.enum(['owner', 'admin', 'member']),
@@ -28,6 +31,10 @@ export const addMemberSchema = z.object({
 });
 
 export const updateMemberSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid company ID'),
+    userId: z.string().uuid('Invalid user ID'),
+  }),
   body: z.object({
     role: z.enum(['owner', 'admin', 'member']).optional(),
     permissions: permissionSelectionSchema.optional(),
@@ -53,8 +60,31 @@ export const joinRequestActionSchema = z.object({
   }),
 });
 
+export const companyIdParamSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid company ID'),
+  }),
+});
+
+export const memberPermissionsParamSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid company ID'),
+    userId: z.string().uuid('Invalid user ID'),
+  }),
+});
+
 export const regenerateInviteCodeSchema = z.object({
   params: z.object({
     id: z.string().uuid('Invalid company ID'),
+  }),
+});
+
+export const listMembersSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid company ID'),
+  }),
+  query: z.object({
+    page: z.coerce.number().int().positive().optional().default(1),
+    limit: z.coerce.number().int().positive().max(100).optional().default(20),
   }),
 });

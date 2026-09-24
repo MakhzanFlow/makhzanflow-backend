@@ -3,8 +3,9 @@ import crypto from 'crypto';
 import { CompanyRepository } from './company.repository.js';
 import { AppError } from '../../shared/errors/app-error.js';
 import { member_role } from '../../../generated/prisma/client.js';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/client.js';
 import { COMPANY } from '../../shared/constants/index.js';
-import { uploadImageBase64 } from '../../shared/utils/cloudinary.js';
+import { StorageService } from '../../shared/storage/storage.service.js';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
 import {
@@ -32,14 +33,15 @@ import type { ICacheService } from '../../shared/cache/cache.interface.js';
 export class CompanyService {
   constructor(
     @inject(CompanyRepository) private companyRepository: CompanyRepository,
-    @inject(CacheService) private cache: ICacheService
+    @inject(CacheService) private cache: ICacheService,
+    @inject(StorageService) private storage: StorageService
   ) {}
 
   private async resolveLogoUrl(logoUrl?: string | null): Promise<string | null> {
     if (!logoUrl) return null;
     if (logoUrl.startsWith('data:')) {
       try {
-        return await uploadImageBase64(logoUrl, env.CLOUDINARY_COMPANY_LOGOS_FOLDER);
+        return await this.storage.uploadBase64Maybe(logoUrl, env.CLOUDINARY_COMPANY_LOGOS_FOLDER);
       } catch (error) {
         logger.error('Logo upload to Cloudinary failed:', error);
         return null;
@@ -102,17 +104,18 @@ export class CompanyService {
       throw new AppError(400, 'Company name is required', 'errors.companyNameRequired');
     }
 
-    const existing = await this.companyRepository.findByName(data.name);
-    if (existing) {
-      const membership = await this.companyRepository.findMember(existing.id, ownerUserId);
-      if (membership) {
-        throw new AppError(
-          409,
-          `You are already inside the company "${existing.name}". Switch to it instead of creating a new one.`,
-          'errors.alreadyInCompany'
-        );
-      }
-      throw new AppError(409, 'A company with this name already exists', 'errors.companyExists');
+    // Company names are unique per owner membership (not globally) to
+    // prevent cross-tenant name squatting while keeping names meaningful.
+    const myCompanies = await this.companyRepository.findCompaniesByUserId(ownerUserId);
+    const sameName = myCompanies.find(
+      (c) => c.name.trim().toLowerCase() === data.name.trim().toLowerCase()
+    );
+    if (sameName) {
+      throw new AppError(
+        409,
+        `You are already inside the company "${sameName.name}". Switch to it instead of creating a new one.`,
+        'errors.alreadyInCompany'
+      );
     }
 
     const logoUrl = await this.resolveLogoUrl(data.logo_url);
@@ -182,12 +185,25 @@ export class CompanyService {
 
   async deleteCompany(companyId: string, userId: string): Promise<CompanyResponse> {
     await this.requireOwner(companyId, userId);
+    const before = await this.companyRepository.findById(companyId);
 
-    const company = await this.companyRepository.delete(companyId);
+    const company = await this.companyRepository.softDelete(companyId);
 
     await this.cache.delPattern(`*:${companyId}:*`);
     await this.cache.delPattern(`companies:*:${companyId}*`);
+    await this.cache.del(CacheKeys.companies.detail(companyId));
+    await this.cache.del(CacheKeys.companies.joinRequests(companyId));
+    if (before?.invite_code) {
+      await this.cache.del(CacheKeys.companies.lookup(before.invite_code));
+    }
 
+    return this.toCompanyResponse(company);
+  }
+
+  async restoreCompany(companyId: string, userId: string): Promise<CompanyResponse> {
+    await this.requireOwner(companyId, userId);
+    const company = await this.companyRepository.restore(companyId);
+    await this.cache.del(CacheKeys.companies.detail(companyId));
     return this.toCompanyResponse(company);
   }
 
@@ -215,7 +231,11 @@ export class CompanyService {
     permissions: any = {},
     operatorUserId: string
   ): Promise<CompanyMemberResponse> {
-    await this.requireOwnerOrAdmin(companyId, operatorUserId);
+    const operator = await this.requireOwnerOrAdmin(companyId, operatorUserId);
+
+    if (operator.role === member_role.admin && role !== member_role.member) {
+      throw new AppError(403, 'Admins can only add members with member role', 'errors.unauthorized');
+    }
 
     const existingMember = await this.companyRepository.findMember(companyId, targetUserId);
     if (existingMember) {
@@ -223,14 +243,19 @@ export class CompanyService {
     }
 
     const permObject = Array.isArray(permissions) ? buildPermissionObject(permissions) : permissions;
-    const member = await this.companyRepository.addMember(companyId, targetUserId, role, permObject);
-
-    await this.cache.del(CacheKeys.companies.detail(companyId));
-    await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
-    await this.cache.del(CacheKeys.companies.user(targetUserId));
-    await this.cache.del(CacheKeys.companies.permissions(companyId, targetUserId));
-
-    return member as any;
+    try {
+      const member = await this.companyRepository.addMember(companyId, targetUserId, role, permObject);
+      await this.cache.del(CacheKeys.companies.detail(companyId));
+      await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
+      await this.cache.del(CacheKeys.companies.user(targetUserId));
+      await this.cache.del(CacheKeys.companies.permissions(companyId, targetUserId));
+      return member as any;
+    } catch (error) {
+      if (error instanceof PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppError(409, 'User is already a member of this company', 'errors.alreadyMember');
+      }
+      throw error;
+    }
   }
 
   async removeMember(companyId: string, targetUserId: string, operatorUserId: string): Promise<CompanyMemberResponse> {
@@ -250,6 +275,7 @@ export class CompanyService {
     }
 
     const removed = await this.companyRepository.removeMember(companyId, targetUserId);
+    await this.companyRepository.deleteJoinRequest(companyId, targetUserId).catch(() => {});
 
     await this.cache.del(CacheKeys.companies.detail(companyId));
     await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
@@ -392,7 +418,7 @@ export class CompanyService {
     return null;
   }
 
-  async requestJoin(inviteCode: string, userId: string): Promise<{ company_id: string; status: string }> {
+  async requestJoin(inviteCode: string, userId: string): Promise<{ id: string; company_id: string; status: string }> {
     const company = await this.companyRepository.findByInviteCode(inviteCode);
     if (!company) {
       throw new AppError(404, 'Invalid invite code', 'errors.invalidInviteCode');
@@ -408,7 +434,7 @@ export class CompanyService {
       throw new AppError(409, 'You already have a pending join request', 'errors.pendingRequest');
     }
     if (existingRequest?.status === 'approved') {
-      throw new AppError(409, 'You are already approved', 'errors.alreadyApproved');
+      await this.companyRepository.deleteJoinRequest(company.id, userId).catch(() => {});
     }
     if (existingRequest?.status === 'rejected') {
       const rejectedAt = existingRequest.updated_at ?? existingRequest.created_at;
@@ -418,14 +444,15 @@ export class CompanyService {
       }
       await this.companyRepository.resetJoinRequest(existingRequest.id);
       await this.cache.del(CacheKeys.companies.userJoinRequests(userId));
-      return { company_id: existingRequest.company_id, status: 'pending' };
+      return { id: existingRequest.id, company_id: existingRequest.company_id, status: 'pending' };
     }
 
     const request = await this.companyRepository.createJoinRequest(company.id, userId);
 
     await this.cache.del(CacheKeys.companies.userJoinRequests(userId));
+    await this.cache.del(CacheKeys.companies.joinRequests(company.id));
 
-    return { company_id: request.company_id, status: request.status };
+    return { id: request.id, company_id: request.company_id, status: request.status };
   }
 
   async listJoinRequests(operatorUserId: string, companyId: string) {
@@ -451,7 +478,14 @@ export class CompanyService {
       throw new AppError(400, 'Join request is not pending', 'errors.requestNotPending');
     }
 
-    await this.companyRepository.approveJoinRequest(requestId, companyId, request.user_id);
+    try {
+      await this.companyRepository.approveJoinRequest(requestId, companyId, request.user_id);
+    } catch (error) {
+      if (error instanceof PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppError(409, 'User is already a member of this company', 'errors.alreadyMember');
+      }
+      throw error;
+    }
 
     await this.cache.del(CacheKeys.companies.detail(companyId));
     await this.cache.delPattern(CacheKeys.companies.members(companyId, "*"));
@@ -483,10 +517,14 @@ export class CompanyService {
   async regenerateInviteCode(operatorUserId: string, companyId: string) {
     await this.requireOwner(companyId, operatorUserId);
 
+    const before = await this.companyRepository.findById(companyId);
     const newCode = await this.generateInviteCode();
     await this.companyRepository.updateInviteCode(companyId, newCode);
 
     await this.cache.del(CacheKeys.companies.detail(companyId));
+    if (before?.invite_code) {
+      await this.cache.del(CacheKeys.companies.lookup(before.invite_code));
+    }
 
     return { invite_code: newCode };
   }

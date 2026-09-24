@@ -1,16 +1,15 @@
 import { injectable } from 'tsyringe';
 import { prisma } from '../../database/prisma.js';
 import { Prisma, member_role } from '../../../generated/prisma/client.js';
-import { AppError } from '../../shared/errors/app-error.js';
 
 @injectable()
 export class CompanyRepository {
   /**
-   * Find a company by its ID
+   * Find a company by its ID (excludes soft-deleted)
    */
   async findById(id: string) {
-    return prisma.companies.findUnique({
-      where: { id },
+    return prisma.companies.findFirst({
+      where: { id, deleted_at: null },
       include: {
         company_subscriptions: {
           include: {
@@ -18,15 +17,6 @@ export class CompanyRepository {
           },
         },
       },
-    });
-  }
-
-  /**
-   * Find a company by name
-   */
-  async findByName(name: string) {
-    return prisma.companies.findFirst({
-      where: { name },
     });
   }
 
@@ -58,7 +48,24 @@ export class CompanyRepository {
   }
 
   /**
-   * Delete a company
+   * Soft-delete a company (reversible, preserves all child data)
+   */
+  async softDelete(id: string) {
+    return prisma.companies.update({
+      where: { id },
+      data: { deleted_at: new Date() },
+    });
+  }
+
+  async restore(id: string) {
+    return prisma.companies.update({
+      where: { id },
+      data: { deleted_at: null },
+    });
+  }
+
+  /**
+   * Hard delete — purge only. Never call from normal service flow.
    */
   async delete(id: string) {
     return prisma.companies.delete({
@@ -180,6 +187,7 @@ export class CompanyRepository {
   async findCompaniesByUserId(userId: string) {
     return prisma.companies.findMany({
       where: {
+        deleted_at: null,
         company_members: {
           some: {
             user_id: userId,
@@ -201,7 +209,7 @@ export class CompanyRepository {
   }
 
   async findByInviteCode(code: string) {
-    return prisma.companies.findFirst({ where: { invite_code: code } });
+    return prisma.companies.findFirst({ where: { invite_code: code, deleted_at: null } });
   }
 
   async createJoinRequest(companyId: string, userId: string) {
@@ -231,27 +239,24 @@ export class CompanyRepository {
   }
 
   async approveJoinRequest(requestId: string, companyId: string, userId: string) {
-    try {
-      return await prisma.$transaction([
-        prisma.company_members.create({
-          data: {
-            company_id: companyId,
-            user_id: userId,
-            role: member_role.member,
-            permissions: {},
-          },
-        }),
-        prisma.join_requests.update({
-          where: { id: requestId },
-          data: { status: 'approved' },
-        }),
-      ]);
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new AppError(409, 'User is already a member of this company', 'errors.alreadyMember');
-      }
-      throw error;
-    }
+    return prisma.$transaction([
+      prisma.company_members.create({
+        data: {
+          company_id: companyId,
+          user_id: userId,
+          role: member_role.member,
+          permissions: {},
+        },
+      }),
+      prisma.join_requests.update({
+        where: { id: requestId },
+        data: { status: 'approved' },
+      }),
+    ]);
+  }
+
+  async deleteJoinRequest(companyId: string, userId: string) {
+    return prisma.join_requests.deleteMany({ where: { company_id: companyId, user_id: userId } });
   }
 
   async rejectJoinRequest(requestId: string) {
