@@ -9,6 +9,7 @@ import {
   lowStockSchema,
   monthlyReportSchema,
   activitySchema,
+  salesSchema,
 } from "./dashboard.validation.js";
 
 const dashboardController = container.resolve(DashboardController);
@@ -17,6 +18,7 @@ const router = Router();
 router.use(authenticate, scopeTenant);
 
 router.get("/stats", authorize("reports.read"), dashboardController.getStats);
+router.get("/sales", authorize("reports.read"), validate(salesSchema), dashboardController.getSales);
 router.get("/low-stock", authorize("reports.read"), validate(lowStockSchema), dashboardController.getLowStock);
 router.get("/monthly-report", authorize("reports.read"), validate(monthlyReportSchema), dashboardController.getMonthlyReport);
 router.get("/activity", authorize("reports.read"), validate(activitySchema), dashboardController.getActivity);

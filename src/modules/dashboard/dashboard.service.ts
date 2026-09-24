@@ -10,6 +10,7 @@ import type {
   ActivityParams,
   RecentActivity,
   WeeklySalesPoint,
+  SalesRange,
 } from "./dashboard.types.js";
 import type { PaginatedResponse } from "../../shared/types/shared.dto.js";
 import { CacheService } from "../../shared/cache/cache.service.js";
@@ -31,12 +32,12 @@ function shiftMonth(ym: YearMonth, delta: number): YearMonth {
 function parseMonth(value: string): YearMonth {
   const match = /^(\d{4})-(\d{2})/.exec(value);
   if (!match) {
-    throw new AppError(400, `Invalid month format: "${value}". Expected YYYY-MM`);
+    throw new AppError(400, `Invalid month format: "${value}". Expected YYYY-MM`, 'errors.invalidMonth');
   }
   const year = Number(match[1]);
   const month = Number(match[2]);
   if (month < 1 || month > 12) {
-    throw new AppError(400, `Invalid month: ${month}. Must be between 01 and 12`);
+    throw new AppError(400, `Invalid month: ${month}. Must be between 01 and 12`, 'errors.invalidMonth');
   }
   return { year, month };
 }
@@ -123,6 +124,31 @@ export class DashboardService {
     return response;
   }
 
+  async getSales(companyId: string, range: SalesRange): Promise<WeeklySalesPoint[]> {
+    const days = range === "90d" ? 90 : range === "30d" ? 30 : 7;
+    const now = new Date();
+    const since = new Date(now.getTime() - days * 86400000);
+    const rows = await this.dashboardRepository.salesSince(companyId, since);
+    const salesMap = new Map<string, number>();
+
+    for (const row of rows) {
+      const key = new Date(row.day).toISOString().split("T")[0] ?? "";
+      salesMap.set(key, Number(row.total));
+    }
+
+    const result: WeeklySalesPoint[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 86400000);
+      const key = date.toISOString().split("T")[0] ?? "";
+      result.push({
+        date: key,
+        label: this.arabicDayLabels[date.getDay().toString()] ?? "",
+        amount: salesMap.get(key) ?? 0,
+      });
+    }
+    return result;
+  }
+
   async getLowStock(params: LowStockParams): Promise<PaginatedResponse<LowStockProduct>> {
     const skip = (params.page - 1) * params.limit;
 
@@ -186,10 +212,10 @@ export class DashboardService {
 
       const monthCount = (endYM.year - startYM.year) * 12 + (endYM.month - startYM.month) + 1;
       if (monthCount > 24) {
-        throw new AppError(400, "Dashboard report range cannot exceed 24 months");
+        throw new AppError(400, "Dashboard report range cannot exceed 24 months", 'errors.invalidReportRange');
       }
       if (monthCount < 1) {
-        throw new AppError(400, "Dashboard report range is invalid: 'from' must be before or equal to 'to'");
+        throw new AppError(400, "Dashboard report range is invalid: 'from' must be before or equal to 'to'", 'errors.invalidReportRange');
       }
     } else {
       endYM = currentMonth;

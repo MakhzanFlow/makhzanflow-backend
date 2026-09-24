@@ -24,3 +24,9 @@ export const activitySchema = z.object({
     limit: z.coerce.number().int().positive().max(100).optional().default(20),
   }),
 });
+
+export const salesSchema = z.object({
+  query: z.object({
+    range: z.enum(["7d", "30d", "90d"]).optional().default("7d"),
+  }),
+});
