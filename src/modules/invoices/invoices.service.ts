@@ -1,7 +1,8 @@
 import { injectable, inject } from "tsyringe";
-import { InvoiceRepository } from "./invoices.repository.js";
+import { InvoiceRepository, InvoiceTxError } from "./invoices.repository.js";
 import { ActivityLogService } from "../activity-logs/activity-logs.service.js";
 import { CustomerRepository } from "../customers/customers.repository.js";
+import { ProductRepository } from "../products/products.repository.js";
 import { AppError } from "../../shared/errors/app-error.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import type { CreateInvoiceInput, AddInvoicePaymentInput, ListInvoicesParams } from "../../types/invoices.js";
@@ -21,9 +22,40 @@ export class InvoiceService {
   constructor(
     @inject(InvoiceRepository) private invoiceRepository: InvoiceRepository,
     @inject(CustomerRepository) private customerRepository: CustomerRepository,
+    @inject(ProductRepository) private productRepository: ProductRepository,
     @inject(ActivityLogService) private activityLogService: ActivityLogService,
     @inject(CacheService) private cache: ICacheService
   ) {}
+
+  private mapTxError(error: unknown): never {
+    if (error instanceof InvoiceTxError) {
+      switch (error.code) {
+        case "PRODUCT_NOT_FOUND":
+          throw new AppError(404, error.message, "errors.productNotFound");
+        case "PRODUCT_INACTIVE":
+          throw new AppError(400, error.message, "errors.productInactive");
+        case "INSUFFICIENT_STOCK":
+          throw new AppError(400, error.message, "errors.insufficientStock");
+        case "PAYMENT_EXCEEDS_TOTAL":
+          throw new AppError(400, error.message, "errors.paymentExceedsTotal");
+        case "INVOICE_NOT_FOUND":
+          throw new AppError(404, error.message, "errors.invoiceNotFound");
+        case "INVOICE_CANCELED":
+          throw new AppError(400, error.message, "errors.invoiceCanceled");
+        case "INVOICE_ALREADY_PAID":
+          throw new AppError(400, error.message, "errors.invoiceAlreadyPaid");
+        case "PAYMENT_EXCEEDS_REMAINING":
+          throw new AppError(400, error.message, "errors.paymentExceedsRemaining");
+        case "INVOICE_ALREADY_CANCELED":
+          throw new AppError(400, error.message, "errors.invoiceAlreadyCanceled");
+        case "INVOICE_CONFLICT":
+          throw new AppError(409, error.message, "errors.invoiceConflict");
+        default:
+          throw new AppError(400, error.message, "errors.invoiceConflict");
+      }
+    }
+    throw error;
+  }
 
   private toInvoiceResponse(invoice: any): InvoiceResponse {
     return {
@@ -102,15 +134,39 @@ export class InvoiceService {
       }
     }
 
-    const invoice = await this.invoiceRepository.createTransactional(data, userId);
+    // Early business-rule validation (fast fail before tx; tx re-checks under lock
+    // and remains authoritative for totals/status/overpay).
+    for (const item of data.items) {
+      const product = await this.productRepository.findById(item.product_id, data.company_id);
+      if (!product) {
+        throw new AppError(404, `Product not found: ${item.product_id}`, "errors.productNotFound");
+      }
+      if (!product.is_active) {
+        throw new AppError(400, `Product ${product.name} is inactive`, "errors.productInactive");
+      }
+      if (product.stock < item.quantity) {
+        throw new AppError(400, `Insufficient stock for product ${product.name}`, "errors.insufficientStock");
+      }
+    }
 
-    await this.activityLogService.log({
-      company_id: data.company_id,
-      user_id: userId,
-      entity: "invoice",
-      entity_id: invoice.id,
-      action: "create",
-    });
+    let invoice;
+    try {
+      invoice = await this.invoiceRepository.createTransactional(data, userId);
+    } catch (error) {
+      this.mapTxError(error);
+    }
+
+    try {
+      await this.activityLogService.log({
+        company_id: data.company_id,
+        user_id: userId,
+        entity: "invoice",
+        entity_id: invoice.id,
+        action: "create",
+      });
+    } catch {
+      // best-effort: invoice already committed
+    }
 
     const full = await this.invoiceRepository.findById(invoice.id, data.company_id);
     if (!full) {
@@ -186,16 +242,25 @@ export class InvoiceService {
   }
 
   async addPayment(invoiceId: string, companyId: string, input: AddInvoicePaymentInput, userId: string): Promise<InvoiceResponse> {
-    const invoice = await this.invoiceRepository.addPaymentTransactional(invoiceId, companyId, input);
+    let invoice;
+    try {
+      invoice = await this.invoiceRepository.addPaymentTransactional(invoiceId, companyId, input);
+    } catch (error) {
+      this.mapTxError(error);
+    }
 
-    await this.activityLogService.log({
-      company_id: companyId,
-      user_id: userId,
-      entity: "invoice",
-      entity_id: invoiceId,
-      action: "update",
-      changes: { action: "payment_added", amount: input.amount },
-    });
+    try {
+      await this.activityLogService.log({
+        company_id: companyId,
+        user_id: userId,
+        entity: "invoice",
+        entity_id: invoiceId,
+        action: "update",
+        changes: { action: "payment_added", amount: input.amount },
+      });
+    } catch {
+      // best-effort
+    }
 
     await this.cache.del(CacheKeys.invoices.detail(invoiceId, companyId));
     await this.cache.delPattern(CacheKeys.invoices.list(companyId, "*"));
@@ -204,21 +269,34 @@ export class InvoiceService {
     await this.cache.delPattern(CacheKeys.customers.debtors(companyId, "*"));
     await this.cache.del(CacheKeys.dashboard.stats(companyId));
     await this.cache.delPattern(CacheKeys.dashboard.monthlyReport(companyId, "*"));
+    if (invoice.customer_id) {
+      await this.cache.del(CacheKeys.customers.detail(invoice.customer_id, companyId));
+      await this.cache.del(CacheKeys.customers.debt(invoice.customer_id, companyId));
+    }
 
     return this.toInvoiceResponse(invoice);
   }
 
   async cancel(invoiceId: string, companyId: string, userId: string): Promise<InvoiceResponse> {
-    const invoice = await this.invoiceRepository.cancelTransactional(invoiceId, companyId, userId);
+    let invoice;
+    try {
+      invoice = await this.invoiceRepository.cancelTransactional(invoiceId, companyId, userId);
+    } catch (error) {
+      this.mapTxError(error);
+    }
 
-    await this.activityLogService.log({
-      company_id: companyId,
-      user_id: userId,
-      entity: "invoice",
-      entity_id: invoiceId,
-      action: "cancel",
-      changes: { status: "canceled" },
-    });
+    try {
+      await this.activityLogService.log({
+        company_id: companyId,
+        user_id: userId,
+        entity: "invoice",
+        entity_id: invoiceId,
+        action: "cancel",
+        changes: { status: "canceled" },
+      });
+    } catch {
+      // best-effort
+    }
 
     await this.cache.del(CacheKeys.invoices.detail(invoiceId, companyId));
     await this.cache.delPattern(CacheKeys.invoices.list(companyId, "*"));
@@ -230,6 +308,10 @@ export class InvoiceService {
     await this.cache.del(CacheKeys.dashboard.stats(companyId));
     await this.cache.delPattern(CacheKeys.dashboard.lowStock(companyId, "*"));
     await this.cache.delPattern(CacheKeys.dashboard.monthlyReport(companyId, "*"));
+    if (invoice.customer_id) {
+      await this.cache.del(CacheKeys.customers.detail(invoice.customer_id, companyId));
+      await this.cache.del(CacheKeys.customers.debt(invoice.customer_id, companyId));
+    }
 
     return this.toInvoiceResponse(invoice);
   }

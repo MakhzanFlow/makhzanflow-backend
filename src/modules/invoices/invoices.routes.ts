@@ -22,6 +22,6 @@ router.get("/", authorize("invoices.read"), validate(listInvoicesSchema), invoic
 router.get("/:id", authorize("invoices.read"), validate(invoiceIdParamSchema), invoiceController.getById);
 router.post("/", createInvoiceLimiter, authorize("invoices.create"), validate(createInvoiceSchema), invoiceController.create);
 router.post("/:id/payments", addPaymentLimiter, authorize("invoices.update"), validate(invoiceIdParamSchema), validate(addPaymentSchema), invoiceController.addPayment);
-router.post("/:id/cancel", authorize("invoices.cancel"), validate(invoiceIdParamSchema), invoiceController.cancel);
+router.post("/:id/cancel", authorize("invoices.delete"), validate(invoiceIdParamSchema), invoiceController.cancel);
 
 export default router;

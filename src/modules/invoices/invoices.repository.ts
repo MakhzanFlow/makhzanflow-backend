@@ -1,8 +1,18 @@
 import { injectable } from "tsyringe";
 import { prisma } from "../../database/prisma.js";
 import { Prisma } from "../../../generated/prisma/client.js";
-import { AppError } from "../../shared/errors/app-error.js";
 import type { CreateInvoiceInput, AddInvoicePaymentInput } from "../../types/invoices.js";
+import { buildInvoiceNumber, computeInvoiceTotal, computeLineTotal, parseInvoiceSeq, resolveInvoiceStatus } from "./invoice-calculation.js";
+
+export class InvoiceTxError extends Error {
+  code: string;
+  meta: Record<string, unknown> | undefined;
+  constructor(code: string, message: string, meta?: Record<string, unknown>) {
+    super(message);
+    this.code = code;
+    this.meta = meta;
+  }
+}
 
 @injectable()
 export class InvoiceRepository {
@@ -53,7 +63,7 @@ export class InvoiceRepository {
         throw error;
       }
     }
-    throw new AppError(409, "Failed to create invoice after retries", "errors.invoiceConflict");
+    throw new InvoiceTxError("INVOICE_CONFLICT", "Failed to create invoice after retries");
   }
 
   private async _createTransactionalInternal(data: CreateInvoiceInput, userId: string) {
@@ -70,13 +80,9 @@ export class InvoiceRepository {
       });
       let seq = 1;
       if (lastInvoice) {
-        const parts = lastInvoice.invoice_number.split("-");
-        const lastSeq = parseInt(parts[2] || "0", 10);
-        if (!isNaN(lastSeq)) {
-          seq = lastSeq + 1;
-        }
+        seq = parseInvoiceSeq(lastInvoice.invoice_number) + 1;
       }
-      const invoiceNumber = `${prefix}${String(seq).padStart(4, "0")}`;
+      const invoiceNumber = buildInvoiceNumber(today, seq);
 
       const productIds = data.items.map((i) => i.product_id);
       await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(productIds)}) AND company_id = ${data.company_id} FOR UPDATE`;
@@ -98,18 +104,18 @@ export class InvoiceRepository {
       for (const item of data.items) {
         const product = productMap.get(item.product_id);
         if (!product) {
-          throw new AppError(404, `Product not found: ${item.product_id}`, "errors.productNotFound");
+          throw new InvoiceTxError("PRODUCT_NOT_FOUND", `Product not found: ${item.product_id}`, { productId: item.product_id });
         }
         if (!product.is_active) {
-          throw new AppError(400, `Product ${product.name} is inactive`, "errors.productInactive");
+          throw new InvoiceTxError("PRODUCT_INACTIVE", `Product ${product.name} is inactive`, { productId: item.product_id });
         }
         if (product.stock < item.quantity) {
-          throw new AppError(400, `Insufficient stock for product ${product.name}`, "errors.insufficientStock");
+          throw new InvoiceTxError("INSUFFICIENT_STOCK", `Insufficient stock for product ${product.name}`, { productId: item.product_id });
         }
 
         const unitPrice = Number(product.price);
-        const itemTotal = item.quantity * unitPrice;
-        subtotal += itemTotal;
+        const itemTotal = computeLineTotal(item.quantity, unitPrice);
+        subtotal = computeInvoiceTotal(subtotal + itemTotal, 0, 0);
 
         itemsToCreate.push({
           product_id: item.product_id,
@@ -120,19 +126,14 @@ export class InvoiceRepository {
         });
       }
 
-      const totalAmount = Math.max(0, subtotal - (data.discount_amount || 0) + (data.tax_amount || 0));
+      const totalAmount = computeInvoiceTotal(subtotal, data.discount_amount || 0, data.tax_amount || 0);
       const paidAmount = data.payment ? data.payment.amount : 0;
 
       if (paidAmount > totalAmount) {
-        throw new AppError(400, "Payment amount cannot exceed invoice total", "errors.paymentExceedsTotal");
+        throw new InvoiceTxError("PAYMENT_EXCEEDS_TOTAL", "Payment amount cannot exceed invoice total");
       }
 
-      let status: "paid" | "partially_paid" | "pending" = "pending";
-      if (paidAmount >= totalAmount && totalAmount > 0) {
-        status = "paid";
-      } else if (paidAmount > 0) {
-        status = "partially_paid";
-      }
+      const status = resolveInvoiceStatus(totalAmount, paidAmount);
 
       const invoice = await tx.invoices.create({
         data: {
@@ -205,10 +206,10 @@ export class InvoiceRepository {
       });
 
       if (!invoice) {
-        throw new AppError(404, "Invoice not found", "errors.invoiceNotFound");
+        throw new InvoiceTxError("INVOICE_NOT_FOUND", "Invoice not found");
       }
       if (invoice.status === "canceled") {
-        throw new AppError(400, "Cannot add payment to a canceled invoice", "errors.invoiceCanceled");
+        throw new InvoiceTxError("INVOICE_CANCELED", "Cannot add payment to a canceled invoice");
       }
 
       const totalAmount = Number(invoice.total_amount);
@@ -216,13 +217,12 @@ export class InvoiceRepository {
       const remaining = Math.max(0, totalAmount - totalPaid);
 
       if (remaining <= 0) {
-        throw new AppError(400, "Invoice is already fully paid", "errors.invoiceAlreadyPaid");
+        throw new InvoiceTxError("INVOICE_ALREADY_PAID", "Invoice is already fully paid");
       }
       if (input.amount > remaining) {
-        throw new AppError(
-          400,
-          `Payment amount (${input.amount}) exceeds remaining amount (${remaining})`,
-          "errors.paymentExceedsRemaining"
+        throw new InvoiceTxError(
+          "PAYMENT_EXCEEDS_REMAINING",
+          `Payment amount (${input.amount}) exceeds remaining amount (${remaining})`
         );
       }
 
@@ -263,10 +263,10 @@ export class InvoiceRepository {
       });
 
       if (!invoice) {
-        throw new AppError(404, "Invoice not found", "errors.invoiceNotFound");
+        throw new InvoiceTxError("INVOICE_NOT_FOUND", "Invoice not found");
       }
       if (invoice.status === "canceled") {
-        throw new AppError(400, "Invoice is already canceled", "errors.invoiceAlreadyCanceled");
+        throw new InvoiceTxError("INVOICE_ALREADY_CANCELED", "Invoice is already canceled");
       }
 
       for (const item of invoice.invoice_items) {

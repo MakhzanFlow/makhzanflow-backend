@@ -33,7 +33,7 @@ export const createInvoiceSchema = z.object({
       })
     ).min(1, "Invoice must contain at least one item"),
     payment: z.object({
-      amount: z.number().min(0),
+      amount: z.number().positive("Payment amount must be greater than 0"),
       method: z.enum(["cash", "card", "bank_transfer", "other"]),
       reference_number: z.string().max(100).optional().nullable(),
       notes: z.string().optional().nullable(),
