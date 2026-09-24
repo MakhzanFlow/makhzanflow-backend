@@ -29,12 +29,13 @@ export class CustomerRepository {
     });
   }
 
-  async findByCompanyId(companyId: string, skip: number, take: number) {
+  async findByCompanyId(companyId: string, skip: number, take: number, sort = 'name', order = 'asc') {
+    const orderBy = { [sort]: order } as Prisma.customersOrderByWithRelationInput;
     return prisma.customers.findMany({
       where: { company_id: companyId },
       skip,
       take,
-      orderBy: { name: 'asc' },
+      orderBy,
     });
   }
 
@@ -75,58 +76,33 @@ export class CustomerRepository {
   }
 
   async update(id: string, companyId: string, data: Prisma.customersUncheckedUpdateInput) {
-    return prisma.customers.update({
-      where: { id },
+    await prisma.customers.updateMany({
+      where: { id, company_id: companyId },
       data,
     });
+    return this.findById(id, companyId);
   }
 
-  async delete(id: string) {
-    return prisma.customers.delete({ where: { id } });
+  async delete(id: string, companyId: string) {
+    return prisma.customers.deleteMany({ where: { id, company_id: companyId } });
   }
 
-  async countInvoices(id: string) {
-    return prisma.invoices.count({ where: { customer_id: id } });
-  }
-
-  async findAllWithInvoices(companyId: string) {
-    return prisma.customers.findMany({
-      where: { company_id: companyId },
-      include: {
-        invoices: {
-          include: { payments: true },
-        },
-      },
-    });
-  }
-
-  async findDebtors(companyId: string, skip: number, take: number) {
-    return prisma.customers.findMany({
-      where: { company_id: companyId },
-      include: {
-        invoices: {
-          where: { status: { in: ['pending', 'partially_paid'] } },
-          include: { payments: true },
-          orderBy: { created_at: 'desc' },
-        },
-      },
-      skip,
-      take,
-      orderBy: { name: 'asc' },
-    });
+  async countInvoices(id: string, companyId: string) {
+    return prisma.invoices.count({ where: { customer_id: id, company_id: companyId } });
   }
 
   async updateImage(id: string, companyId: string, imageUrl: string) {
-    return prisma.customers.update({
-      where: { id },
+    await prisma.customers.updateMany({
+      where: { id, company_id: companyId },
       data: { image_url: imageUrl },
     });
+    return this.findById(id, companyId);
   }
 
   async findLatestInvoiceNumber(companyId: string) {
     const invoice = await prisma.invoices.findFirst({
       where: { company_id: companyId, invoice_number: { startsWith: 'OB-' } },
-      orderBy: { created_at: 'desc' },
+      orderBy: { invoice_number: 'desc' },
     });
     return invoice?.invoice_number ?? null;
   }
@@ -183,5 +159,114 @@ export class CustomerRepository {
       });
       return { customer, invoice };
     });
+  }
+
+  /**
+   * Debt aggregation in SQL: debt = SUM over open invoices
+   * (status pending/partially_paid) of (total_amount - paid).
+   * Same semantics as the service-level calculateDebt helper.
+   */
+  private debtInnerSql(searchParamIndex: number, withSearch: boolean): string {
+    const searchClause = withSearch
+      ? ` AND (c.name ILIKE $${searchParamIndex} OR c.phone ILIKE $${searchParamIndex})`
+      : '';
+    return `
+      SELECT
+        c.id, c.name, c.phone, c.email, c.address,
+        c.opening_balance, c.image_url, c.created_at, c.updated_at,
+        COALESCE(d.debt, 0)::float AS debt,
+        (
+          SELECT MAX(i2.created_at) FROM invoices i2
+          WHERE i2.customer_id = c.id AND i2.company_id = $1
+            AND i2.status IN ('pending', 'partially_paid')
+        ) AS last_invoice_date
+      FROM customers c
+      LEFT JOIN (
+        SELECT i.customer_id, SUM(i.total_amount - COALESCE(p.paid, 0)) AS debt
+        FROM invoices i
+        LEFT JOIN (
+          SELECT invoice_id, SUM(amount) AS paid FROM payments GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE i.company_id = $1 AND i.status IN ('pending', 'partially_paid')
+        GROUP BY i.customer_id
+      ) d ON d.customer_id = c.id
+      WHERE c.company_id = $1${searchClause}
+    `;
+  }
+
+  private debtCondition(status: 'has_debt' | 'zero_debt' | 'credit' | 'all'): string {
+    switch (status) {
+      case 'has_debt':
+        return 'debt > 0';
+      case 'zero_debt':
+        return 'debt = 0';
+      case 'credit':
+        return 'debt < 0';
+      default:
+        return 'TRUE';
+    }
+  }
+
+  async findCustomersDebtPage(
+    companyId: string,
+    opts: {
+      search?: string | undefined;
+      debtStatus?: 'has_debt' | 'zero_debt' | 'credit' | 'all' | undefined;
+      sort?: string | undefined;
+      order?: string | undefined;
+      skip: number;
+      take: number;
+    }
+  ): Promise<{ rows: Array<Record<string, any>>; total: number }> {
+    const withSearch = !!opts.search;
+    const params: any[] = [companyId];
+    if (withSearch) params.push(`%${opts.search}%`);
+
+    const inner = this.debtInnerSql(withSearch ? 2 : 0, withSearch);
+    const condition = this.debtCondition(opts.debtStatus ?? 'all');
+
+    const allowedSorts = ['name', 'created_at', 'opening_balance', 'debt'];
+    const sortCol = allowedSorts.includes(opts.sort ?? '') ? opts.sort! : 'name';
+    const sortDir = opts.order === 'desc' ? 'DESC' : 'ASC';
+
+    const dataSql = `SELECT * FROM (${inner}) t WHERE ${condition} ORDER BY "${sortCol}" ${sortDir} OFFSET $${params.length + 1} LIMIT $${params.length + 2}`;
+    const countSql = `SELECT COUNT(*)::int AS count FROM (${inner}) t WHERE ${condition}`;
+    const dataParams = [...params, opts.skip, opts.take];
+
+    const [rows, countRows] = await Promise.all([
+      prisma.$queryRawUnsafe<Array<Record<string, any>>>(dataSql, ...dataParams),
+      prisma.$queryRawUnsafe<Array<{ count: number }>>(countSql, ...params),
+    ]);
+    return { rows, total: countRows[0]?.count ?? 0 };
+  }
+
+  async findDebtsForCustomerIds(companyId: string, customerIds: string[]): Promise<Map<string, number>> {
+    if (customerIds.length === 0) return new Map();
+    const rows = await prisma.$queryRawUnsafe<Array<{ customer_id: string; debt: number }>>(
+      `SELECT i.customer_id, COALESCE(SUM(i.total_amount - COALESCE(p.paid, 0)), 0)::float AS debt
+       FROM invoices i
+       LEFT JOIN (SELECT invoice_id, SUM(amount) AS paid FROM payments GROUP BY invoice_id) p ON p.invoice_id = i.id
+       WHERE i.company_id = $1 AND i.customer_id = ANY($2) AND i.status IN ('pending', 'partially_paid')
+       GROUP BY i.customer_id`,
+      companyId,
+      customerIds
+    );
+    const map = new Map<string, number>();
+    for (const id of customerIds) map.set(id, 0);
+    for (const row of rows) map.set(row.customer_id, Number(row.debt));
+    return map;
+  }
+
+  async countDebtBuckets(companyId: string): Promise<{ total: number; with_debt: number; zero_debt: number; credit_balance: number }> {
+    const inner = this.debtInnerSql(0, false);
+    const rows = await prisma.$queryRawUnsafe<Array<{ total: number; with_debt: number; zero_debt: number; credit_balance: number }>>(
+      `SELECT COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE debt > 0)::int AS with_debt,
+        COUNT(*) FILTER (WHERE debt = 0)::int AS zero_debt,
+        COUNT(*) FILTER (WHERE debt < 0)::int AS credit_balance
+       FROM (${inner}) t`,
+      companyId
+    );
+    return rows[0] ?? { total: 0, with_debt: 0, zero_debt: 0, credit_balance: 0 };
   }
 }
