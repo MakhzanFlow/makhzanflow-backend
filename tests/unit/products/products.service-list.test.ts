@@ -33,6 +33,13 @@ function makeCacheStub(): ICacheService {
   };
 }
 
+function makeStorageStub() {
+  return {
+    uploadBuffer: async () => "https://example.com/p.png",
+    uploadBase64Maybe: async (v: string | null | undefined) => v ?? null,
+  };
+}
+
 const companyId = "company-uuid";
 
 const activeProduct = {
@@ -65,7 +72,7 @@ void describe("ProductService.list() is_active default", () => {
 
   beforeEach(() => {
     repo = makeRepoStubs();
-    service = new ProductService(repo, makeActivityLogStubs(), makeCacheStub());
+    service = new ProductService(repo, makeActivityLogStubs(), makeCacheStub(), makeStorageStub());
   });
 
   void it("returns ALL products (active + inactive) when is_active param is not given", async () => {

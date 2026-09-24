@@ -25,6 +25,13 @@ function makeCacheStub(): ICacheService {
   };
 }
 
+function makeStorageStub() {
+  return {
+    uploadBuffer: async () => "https://example.com/logo.png",
+    uploadBase64Maybe: async (v: string | null | undefined) => v ?? null,
+  };
+}
+
 const companyId = "company-uuid";
 
 void describe("CompanyService", () => {
@@ -33,7 +40,7 @@ void describe("CompanyService", () => {
 
   beforeEach(() => {
     repo = makeRepoStubs();
-    service = new CompanyService(repo, makeCacheStub());
+    service = new CompanyService(repo, makeCacheStub(), makeStorageStub() as any);
   });
 
   void describe("getPermissionCatalog()", () => {
@@ -62,7 +69,7 @@ void describe("CompanyService", () => {
 
   void describe("getMemberPermissions()", () => {
     void it("returns the member role and flattened permission keys", async () => {
-      (repo.findMember as any).mock.mockImplementation(async (companyId: string, userId: string) => {
+      (repo.findMember as any).mock.mockImplementation(async (_companyId: string, userId: string) => {
         if (userId === "operator-1") return { role: "owner", permissions: { all: true } };
         return {
           role: "member",
@@ -112,7 +119,7 @@ void describe("CompanyService", () => {
     });
 
     void it("rejects when the target member does not exist", async () => {
-      (repo.findMember as any).mock.mockImplementation(async (companyId: string, userId: string) => {
+      (repo.findMember as any).mock.mockImplementation(async (_companyId: string, userId: string) => {
         if (userId === "operator-1") return { role: "owner", permissions: { all: true } };
         return null;
       });

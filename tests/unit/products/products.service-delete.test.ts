@@ -34,6 +34,13 @@ function makeCacheStub(): ICacheService {
   };
 }
 
+function makeStorageStub() {
+  return {
+    uploadBuffer: async () => "https://example.com/p.png",
+    uploadBase64Maybe: async (v: string | null | undefined) => v ?? null,
+  };
+}
+
 function makeRecordingCacheStub() {
   const calls: { op: "del" | "delPattern"; key: string }[] = [];
   const stub: ICacheService = {
@@ -57,7 +64,7 @@ function assertThoroughInvalidation(calls: { op: string; key: string }[], id: st
   assert.ok(keys.includes(`delPattern:products:low-stock:${companyId}:*`));
   // Invoice payloads embed product snapshots (name/price/image_url)
   assert.ok(keys.includes(`delPattern:invoices:list:${companyId}:*`));
-  assert.ok(keys.includes(`delPattern:invoices:detail:*:${companyId}`));
+  assert.ok(keys.includes(`delPattern:invoices:detail:${companyId}:*`));
   // Dashboard aggregates + activity feed (new log entry written)
   assert.ok(keys.includes(`del:dashboard:stats:${companyId}`));
   assert.ok(keys.includes(`delPattern:dashboard:low-stock:${companyId}:*`));
@@ -89,7 +96,7 @@ void describe("ProductService.delete()", () => {
 
   beforeEach(() => {
     repo = makeRepoStubs();
-    service = new ProductService(repo, makeActivityLogStubs(), makeCacheStub());
+    service = new ProductService(repo, makeActivityLogStubs(), makeCacheStub(), makeStorageStub());
   });
 
   void it("hard-deletes when the product has no invoice references", async () => {
@@ -97,7 +104,7 @@ void describe("ProductService.delete()", () => {
     (repo.countInvoiceReferences as any).mock.mockImplementation(async () => 0);
     (repo.delete as any).mock.mockImplementation(async () => ({ ...baseProduct }));
     const { stub, calls } = makeRecordingCacheStub();
-    service = new ProductService(repo, makeActivityLogStubs(), stub);
+    service = new ProductService(repo, makeActivityLogStubs(), stub, makeStorageStub());
 
     const result = await service.delete(baseProduct.id, companyId, userId);
 
@@ -116,7 +123,7 @@ void describe("ProductService.delete()", () => {
       is_active: false,
     }));
     const { stub, calls } = makeRecordingCacheStub();
-    service = new ProductService(repo, makeActivityLogStubs(), stub);
+    service = new ProductService(repo, makeActivityLogStubs(), stub, makeStorageStub());
 
     const result = await service.delete(baseProduct.id, companyId, userId);
 

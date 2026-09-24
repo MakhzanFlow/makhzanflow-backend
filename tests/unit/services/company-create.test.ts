@@ -25,6 +25,13 @@ function makeCacheStub(): ICacheService {
   };
 }
 
+function makeStorageStub() {
+  return {
+    uploadBuffer: async () => "https://example.com/logo.png",
+    uploadBase64Maybe: async (v: string | null | undefined) => v ?? null,
+  };
+}
+
 const ownerUserId = "user-uuid";
 
 const existingCompany = {
@@ -42,12 +49,11 @@ void describe("CompanyService.createCompany() duplicate-name handling", () => {
 
   beforeEach(() => {
     repo = makeRepoStubs();
-    service = new CompanyService(repo, makeCacheStub());
+    service = new CompanyService(repo, makeCacheStub(), makeStorageStub() as any);
   });
 
-  void it("tells the user they are already inside the company when they are a member of it", async () => {
-    (repo.findByName as any).mock.mockImplementation(async () => ({ ...existingCompany }));
-    (repo.findMember as any).mock.mockImplementation(async () => ({ role: "owner" }));
+  void it("tells the user they are already inside the company when they own that name", async () => {
+    (repo.findCompaniesByUserId as any).mock.mockImplementation(async () => [{ ...existingCompany }]);
 
     await assert.rejects(service.createCompany({ name: "Acme" }, ownerUserId), (err: unknown) => {
       assert.ok(err instanceof AppError);
@@ -59,16 +65,17 @@ void describe("CompanyService.createCompany() duplicate-name handling", () => {
     assert.strictEqual((repo.createCompanyWithOwner as any).mock.callCount(), 0);
   });
 
-  void it("keeps the generic already-exists error when the user is not a member of that company", async () => {
-    (repo.findByName as any).mock.mockImplementation(async () => ({ ...existingCompany }));
-    (repo.findMember as any).mock.mockImplementation(async () => null);
+  void it("allows the same name when the user has no company with that name", async () => {
+    (repo.findCompaniesByUserId as any).mock.mockImplementation(async () => []);
+    (repo.createCompanyWithOwner as any).mock.mockImplementation(async (data: any) => ({
+      id: "new-uuid",
+      ...data,
+      created_at: new Date("2026-09-01"),
+      updated_at: new Date("2026-09-01"),
+    }));
 
-    await assert.rejects(service.createCompany({ name: "Acme" }, ownerUserId), (err: unknown) => {
-      assert.ok(err instanceof AppError);
-      assert.strictEqual((err as AppError).statusCode, 409);
-      assert.strictEqual((err as AppError).messageKey, "errors.companyExists");
-      return true;
-    });
-    assert.strictEqual((repo.createCompanyWithOwner as any).mock.callCount(), 0);
+    const company = await service.createCompany({ name: "Acme" }, ownerUserId);
+    assert.strictEqual(company.name, "Acme");
+    assert.strictEqual((repo.createCompanyWithOwner as any).mock.callCount(), 1);
   });
 });
