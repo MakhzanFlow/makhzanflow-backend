@@ -16,13 +16,15 @@ import { CacheKeys } from '../../shared/cache/cache-keys.js';
 import { hashQuery } from '../../shared/cache/hash.js';
 import { CACHE_TTL } from '../../shared/cache/constants.js';
 import type { ICacheService } from '../../shared/cache/cache.interface.js';
+import { StorageService } from '../../shared/storage/storage.service.js';
 
 @injectable()
 export class ProductService {
   constructor(
     @inject(ProductRepository) private productRepository: ProductRepository,
     @inject(ActivityLogService) private activityLogService: ActivityLogService,
-    @inject(CacheService) private cache: ICacheService
+    @inject(CacheService) private cache: ICacheService,
+    @inject(StorageService) private storage: StorageService
   ) {}
 
   private toProductResponse(product: any): ProductResponse {
@@ -183,7 +185,14 @@ export class ProductService {
     }
     if (data.is_active !== undefined) updateData.is_active = data.is_active;
 
+    if (Object.keys(updateData).length === 0) {
+      throw new AppError(400, "Nothing to update", "errors.validation");
+    }
+
     const product = await this.productRepository.update(id, companyId, updateData).catch((err) => this.handleUniqueError(err));
+    if (!product) {
+      throw new AppError(404, "Product not found", "errors.productNotFound");
+    }
 
     await this.activityLogService.log({
       company_id: companyId,
@@ -212,6 +221,9 @@ export class ProductService {
       }
 
       const deactivated = await this.productRepository.softDelete(id, companyId);
+      if (!deactivated) {
+        throw new AppError(404, "Product not found", "errors.productNotFound");
+      }
 
       await this.activityLogService.log({
         company_id: companyId,
@@ -298,6 +310,9 @@ export class ProductService {
     const product = await this.productRepository.update(id, companyId, {
       image_url: imageUrl,
     });
+    if (!product) {
+      throw new AppError(404, "Product not found", "errors.productNotFound");
+    }
 
     await this.activityLogService.log({
       company_id: companyId,
@@ -311,5 +326,28 @@ export class ProductService {
     await this.invalidateProductCache(id, companyId);
 
     return this.toProductResponse(product);
+  }
+
+  async uploadImageWithBuffer(id: string, companyId: string, buffer: Buffer, userId: string): Promise<ProductResponse> {
+    const existing = await this.productRepository.findById(id, companyId);
+    if (!existing) {
+      throw new AppError(404, "Product not found", "errors.productNotFound");
+    }
+    const imageUrl = await this.storage.uploadBuffer(buffer, "product_images");
+    return this.uploadImage(id, companyId, imageUrl, userId);
+  }
+
+  async getActivityLogs(id: string, companyId: string, pagination: { page: number; limit: number }) {
+    const existing = await this.productRepository.findById(id, companyId);
+    if (!existing) {
+      throw new AppError(404, "Product not found", "errors.productNotFound");
+    }
+    return this.activityLogService.getLogs({
+      companyId,
+      entity: "product",
+      entityId: id,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
   }
 }

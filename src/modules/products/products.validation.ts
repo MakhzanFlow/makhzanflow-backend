@@ -2,12 +2,14 @@ import { z } from "zod";
 
 /**
  * Accepts real JSON booleans as well as "true"/"false" strings
- * (e.g. from form-data or query-style clients).
- * NOTE: the `validate` middleware only checks input — it does not write the
- * parsed result back to the request — so controllers must normalize with
- * `normalizeBooleanFlag()` before passing values to the service layer.
+ * (e.g. from form-data or query-style clients) and normalizes them
+ * to booleans. The `validate` middleware writes the parsed result
+ * back to the request, so controllers receive real booleans.
  */
-const flexibleBoolean = z.union([z.boolean(), z.enum(["true", "false"])]);
+const flexibleBoolean = z.preprocess(
+  (v) => (v === "true" ? true : v === "false" ? false : v),
+  z.boolean()
+);
 
 export function normalizeBooleanFlag(value: unknown): boolean | undefined {
   if (value === undefined || value === null) return undefined;
