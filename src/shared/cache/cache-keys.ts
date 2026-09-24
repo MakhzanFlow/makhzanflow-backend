@@ -17,8 +17,12 @@ export const CacheKeys = {
 
   invoices: {
     list: (companyId: string, hash: string) => `invoices:list:${companyId}:${hash}`,
-    detail: (id: string, companyId: string) => `invoices:detail:${id}:${companyId}`,
-    detailForCompany: (companyId: string) => `invoices:detail:*:${companyId}`,
+    detail: (id: string, companyId: string) => `invoices:detail:${companyId}:${id}`,
+    detailForCompany: (companyId: string) => `invoices:detail:${companyId}:*`,
+  },
+
+  payments: {
+    list: (companyId: string, hash: string) => `payments:list:${companyId}:${hash}`,
   },
 
   dashboard: {

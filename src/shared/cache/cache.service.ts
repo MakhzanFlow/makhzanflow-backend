@@ -1,6 +1,8 @@
+import { injectable } from "tsyringe";
 import type { RedisClient } from "../../config/redis.js";
 import type { ICacheService } from "./cache.interface.js";
 
+@injectable()
 export class CacheService implements ICacheService {
   constructor(private redis: RedisClient) {}
 
