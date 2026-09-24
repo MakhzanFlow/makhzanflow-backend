@@ -1,23 +1,22 @@
 import type { Response, NextFunction } from 'express';
 import type { TenantRequest } from './tenant.middleware.js';
 import { AppError } from '../shared/errors/app-error.js';
-import { prisma } from '../database/prisma.js';
+import { container } from 'tsyringe';
+import { CompanyRepository } from '../modules/companies/company.repository.js';
 
 
 
 async function resolveMemberPermissions(userId: string, companyId: string) {
 
 
-  const member = await prisma.company_members.findUnique({
-    where: { company_id_user_id: { company_id: companyId, user_id: userId } },
-    select: { role: true, permissions: true },
-  });
+  const companyRepository = container.resolve(CompanyRepository);
+  const member = await companyRepository.findMember(companyId, userId);
 
   if (!member) return null;
 
   const result = {
     role: member.role,
-    permissions: member.permissions as Record<string, any>,
+    permissions: (member.permissions ?? {}) as Record<string, any>,
   };
 
 
@@ -25,7 +24,7 @@ async function resolveMemberPermissions(userId: string, companyId: string) {
 }
 
 export function authorize(...requiredPermissions: string[]) {
-  return async (req: TenantRequest, res: Response, next: NextFunction) => {
+  return async (req: TenantRequest, _res: Response, next: NextFunction) => {
     try {
       if (!req.user?.id) {
         return next(new AppError(401, 'Authentication required', 'errors.authenticationRequired'));

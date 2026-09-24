@@ -1,7 +1,8 @@
 import type { Response, NextFunction } from 'express';
 import type { AuthRequest } from './auth.middleware.js';
 import { AppError } from '../shared/errors/app-error.js';
-import { prisma } from '../database/prisma.js';
+import { container } from 'tsyringe';
+import { CompanyRepository } from '../modules/companies/company.repository.js';
 
 export interface TenantRequest extends AuthRequest {
   companyId?: string;
@@ -9,7 +10,7 @@ export interface TenantRequest extends AuthRequest {
   permissions?: Record<string, any>;
 }
 
-export const scopeTenant = async (req: TenantRequest, res: Response, next: NextFunction) => {
+export const scopeTenant = async (req: TenantRequest, _res: Response, next: NextFunction) => {
   try {
     // Multi-tenant check
     // 1. Check if authenticated user exists
@@ -23,11 +24,9 @@ export const scopeTenant = async (req: TenantRequest, res: Response, next: NextF
       return next(new AppError(400, 'Company scope is required', 'errors.companyScopeRequired'));
     }
 
-    // 3. Verify the user is a member of the requested company
-    const member = await prisma.company_members.findUnique({
-      where: { company_id_user_id: { company_id: companyId, user_id: req.user.id } },
-      select: { role: true, permissions: true },
-    });
+    // 3. Verify the user is a member of the requested company (repository layer only)
+    const companyRepository = container.resolve(CompanyRepository);
+    const member = await companyRepository.findMember(companyId, req.user.id);
 
     if (!member) {
       return next(new AppError(403, 'You are not a member of this company', 'errors.notCompanyMember'));
@@ -36,7 +35,7 @@ export const scopeTenant = async (req: TenantRequest, res: Response, next: NextF
     // 4. Attach tenant information to request (role from membership, never from token)
     req.companyId = companyId;
     req.role = member.role;
-    req.permissions = member.permissions as Record<string, any>;
+    req.permissions = (member.permissions ?? {}) as Record<string, any>;
 
     next();
   } catch (error) {

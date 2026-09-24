@@ -2,9 +2,10 @@ import type { NextFunction, Request, Response } from "express";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis as UpstashRedis } from "@upstash/redis";
 import { logger } from "../config/logger.js";
+import { getRedisConfig } from "../config/redis.js";
+import { env } from "../config/env.js";
 
-const upstashUrl = process.env["UPSTASH_REDIS_REST_URL"];
-const upstashToken = process.env["UPSTASH_REDIS_REST_TOKEN"];
+const { upstashUrl, upstashToken } = getRedisConfig();
 
 let ratelimit: Ratelimit | null = null;
 
@@ -16,13 +17,15 @@ if (upstashUrl && upstashToken) {
     prefix: "rl:api",
   });
   logger.info("Upstash rate limiter initialized (100 req / 15 min per IP)");
+} else {
+  logger.warn("Upstash rate limiter disabled (credentials not configured) — global throttle inactive");
 }
 
 export async function upstashRateLimit(req: Request, res: Response, next: NextFunction) {
   // Test hook: integration/E2E suites set DISABLE_RATE_LIMIT=1 so a single
   // runner IP is not throttled by the shared 100 req / 15 min window.
-  // Never set in production environments.
-  if (process.env["DISABLE_RATE_LIMIT"] === "1") {
+  // The flag is honored only outside production — it never disables limits in prod.
+  if (env.DISABLE_RATE_LIMIT === "1" && env.NODE_ENV !== "production") {
     next();
     return;
   }
@@ -42,6 +45,7 @@ export async function upstashRateLimit(req: Request, res: Response, next: NextFu
       res.status(429).json({
         success: false,
         message: "Too many requests, please try again later",
+        errors: [],
       });
       return;
     }
